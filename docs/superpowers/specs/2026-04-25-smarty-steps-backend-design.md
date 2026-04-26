@@ -26,7 +26,8 @@ app/
   daos/         # Data Access Objects — sole interface to PostgreSQL
   db/           # SQLAlchemy ORM models (entities) and DB session
   schemas/      # Pydantic request/response schemas
-  core/         # Config, Cognito client
+  clients/      # External service clients (Cognito, Claude API)
+  core/         # Config, settings
 tests/
   api/          # httpx.AsyncClient integration tests
   services/     # Unit tests (mock DAOs)
@@ -45,65 +46,82 @@ tests/
 
 ## Database Schema
 
+All primary keys use `uuid7()` (time-ordered UUIDs via `pg_uuidv7` extension) for index locality.
+
 ### `parents`
-```sql
-id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
-cognito_id    VARCHAR UNIQUE NOT NULL
-email         VARCHAR UNIQUE NOT NULL
-pin_hash      VARCHAR NOT NULL          -- bcrypt hash of 4-digit PIN
-created_at    TIMESTAMP DEFAULT now()
-```
+
+| Column | Type | Constraints | Reasoning |
+|--------|------|-------------|-----------|
+| `id` | UUID | PK, DEFAULT uuid7() | Time-ordered for index performance |
+| `cognito_id` | VARCHAR | UNIQUE NOT NULL | Foreign reference to Cognito user pool — used to look up parent on every authenticated request |
+| `email` | VARCHAR | UNIQUE NOT NULL | Stored for display; Cognito is auth source of truth |
+| `pin_hash` | VARCHAR | NOT NULL | bcrypt hash of 4-digit PIN; used for parent dashboard access separate from main login |
+| `created_at` | TIMESTAMP | DEFAULT now() | Audit trail |
+
+---
 
 ### `learners`
-```sql
-id              UUID PRIMARY KEY DEFAULT gen_random_uuid()
-parent_id       UUID REFERENCES parents(id) ON DELETE CASCADE
-name            VARCHAR NOT NULL
-age             SMALLINT NOT NULL
-grade_level     SMALLINT NOT NULL
-avatar_emoji    VARCHAR NOT NULL DEFAULT '🚀'
-total_stars     INT DEFAULT 0
-level           SMALLINT DEFAULT 1
-xp              INT DEFAULT 0
-streak_days     SMALLINT DEFAULT 0
-last_active_at  TIMESTAMP
-updated_at      TIMESTAMP DEFAULT now()
-created_at      TIMESTAMP DEFAULT now()
-```
+
+| Column | Type | Constraints | Reasoning |
+|--------|------|-------------|-----------|
+| `id` | UUID | PK, DEFAULT uuid7() | |
+| `parent_id` | UUID | FK → parents(id) ON DELETE CASCADE | Learner is owned by one parent; cascade removes learner if parent is deleted |
+| `name` | VARCHAR | NOT NULL | Display name chosen by parent |
+| `age` | INT | NOT NULL | Validated 5–8 at creation; used for content calibration |
+| `grade_level` | INT | NOT NULL | Validated 0–3; drives which standards/content is served |
+| `avatar_emoji` | VARCHAR | NOT NULL DEFAULT '🚀' | Chosen by learner/parent; shown on leaderboard and profile |
+| `total_stars` | INT | DEFAULT 0 | Cumulative stars across all lessons + quiz effective stars; drives leaderboard ranking |
+| `level` | INT | DEFAULT 1 | Derived from XP (`floor(xp/100)+1`); recalculated by ProgressService after every XP change |
+| `xp` | INT | DEFAULT 0 | Cumulative XP; source of truth for level |
+| `streak_days` | INT | DEFAULT 0 | Consecutive active calendar days (UTC); shown on leaderboard and profile |
+| `last_active_at` | TIMESTAMP | nullable | Compared against today's date for streak logic; also used for weekly/monthly leaderboard period filter |
+| `updated_at` | TIMESTAMP | DEFAULT now() | Audit trail |
+| `created_at` | TIMESTAMP | DEFAULT now() | Tie-breaking on leaderboard (earlier account wins) |
+
+---
 
 ### `standards`
-```sql
-id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
-code          VARCHAR UNIQUE NOT NULL    -- e.g. CCSS.Math.Content.1.OA.A.1
-subject       VARCHAR NOT NULL           -- math | science | english
-grade_level   SMALLINT NOT NULL
-title         VARCHAR NOT NULL
-description   TEXT
-created_at    TIMESTAMP DEFAULT now()
-```
+
+| Column | Type | Constraints | Reasoning |
+|--------|------|-------------|-----------|
+| `id` | UUID | PK, DEFAULT uuid7() | |
+| `code` | VARCHAR | UNIQUE NOT NULL | Standard identifier from Common Standards/ASN API (e.g. `CCSS.Math.Content.1.OA.A.1`); unique prevents duplicate sync |
+| `subject` | VARCHAR | NOT NULL | `math \| science \| english`; used to assign standard to correct chapters |
+| `grade_level` | INT | NOT NULL | Drives which chapter/difficulty level the generated lesson lands in |
+| `title` | VARCHAR | NOT NULL | Human-readable standard name |
+| `description` | TEXT | nullable | Full standard text; passed to Claude as context for lesson generation |
+| `created_at` | TIMESTAMP | DEFAULT now() | Audit trail |
+
+---
 
 ### `chapters`
-```sql
-id           UUID PRIMARY KEY DEFAULT gen_random_uuid()
-subject      VARCHAR NOT NULL          -- math | science | english
-title        VARCHAR NOT NULL
-order_index  SMALLINT NOT NULL
-```
+
+| Column | Type | Constraints | Reasoning |
+|--------|------|-------------|-----------|
+| `id` | UUID | PK, DEFAULT uuid7() | |
+| `subject` | VARCHAR | NOT NULL | `math \| science \| english`; used to filter chapters for curriculum fetch |
+| `title` | VARCHAR | NOT NULL | e.g. "Counting & Numbers"; shown in app UI |
+| `order_index` | INT | NOT NULL | Determines linear progression order within a subject; drives locking logic across chapter boundaries |
+
+Chapters are seeded via Alembic migration — hand-crafted topic groupings that lessons populate.
+
+---
 
 ### `lessons`
-```sql
-id              UUID PRIMARY KEY DEFAULT gen_random_uuid()
-chapter_id      UUID REFERENCES chapters(id) ON DELETE CASCADE
-standard_id     UUID REFERENCES standards(id) ON DELETE SET NULL
-subject         VARCHAR NOT NULL          -- math | science | english
-title           VARCHAR NOT NULL
-difficulty      VARCHAR NOT NULL DEFAULT 'medium'   -- easy | medium | hard
-order_index     SMALLINT NOT NULL
-content         JSONB NOT NULL
-stars_available SMALLINT DEFAULT 3
-```
 
-Note: `exercise_type` is not stored on lessons — lessons contain mixed exercise types within the JSONB.
+| Column | Type | Constraints | Reasoning |
+|--------|------|-------------|-----------|
+| `id` | UUID | PK, DEFAULT uuid7() | |
+| `chapter_id` | UUID | FK → chapters(id) ON DELETE CASCADE | Lesson belongs to one chapter; cascade removes lessons if chapter is deleted |
+| `standard_id` | UUID | FK → standards(id) ON DELETE SET NULL | Lesson generated from this standard; SET NULL preserves lesson if standard is removed |
+| `subject` | VARCHAR | NOT NULL | Denormalised from chapter for efficient subject-level queries without join |
+| `title` | VARCHAR | NOT NULL | Human-readable lesson title |
+| `difficulty` | VARCHAR | NOT NULL DEFAULT 'easy' | `easy \| medium \| hard`; lessons within a chapter progress easy → medium → hard by `order_index` |
+| `order_index` | INT | NOT NULL | Determines lesson sequence within chapter; drives lock state calculation |
+| `content` | JSONB | NOT NULL | Full lesson content including correct answers — never sent raw to client |
+| `stars_available` | INT | DEFAULT 3 | Max stars earnable; always 3 for lessons |
+
+Lessons contain mixed exercise types (multiple_choice, fill_blank, matching) within the JSONB — no single `exercise_type` column.
 
 **Lesson `content` JSONB schema (full, stored in DB — correct answers never sent to client):**
 ```json
@@ -167,55 +185,61 @@ The following fields are removed or transformed before sending to client:
 - `pairs` (matching) — stripped and replaced with shuffled `left_items: [string]` and `right_items: [string]` arrays so the client can display items without knowing the correct pairings
 - `explanation` — stripped; revealed only via `check-answer` response
 
+---
+
 ### `lesson_progress`
-```sql
-id             UUID PRIMARY KEY DEFAULT gen_random_uuid()
-learner_id     UUID REFERENCES learners(id) ON DELETE CASCADE
-lesson_id      UUID REFERENCES lessons(id) ON DELETE CASCADE
-completed      BOOLEAN DEFAULT FALSE
-stars_earned   SMALLINT DEFAULT 0
-score_correct  SMALLINT
-score_total    SMALLINT
-time_seconds   SMALLINT
-completed_at   TIMESTAMP
-updated_at     TIMESTAMP DEFAULT now()
-UNIQUE(learner_id, lesson_id)
-```
+
+| Column | Type | Constraints | Reasoning |
+|--------|------|-------------|-----------|
+| `id` | UUID | PK, DEFAULT uuid7() | |
+| `learner_id` | UUID | FK → learners(id) ON DELETE CASCADE | Progress is owned by learner |
+| `lesson_id` | UUID | FK → lessons(id) ON DELETE CASCADE | Progress is tied to a specific lesson |
+| `completed` | BOOLEAN | DEFAULT FALSE | Used for lock state computation and chapter completion detection |
+| `stars_earned` | INT | DEFAULT 0 | Best stars achieved across all attempts; never decremented |
+| `score_correct` | INT | nullable | Number of exercises answered correctly on best attempt |
+| `score_total` | INT | nullable | Total exercises on best attempt |
+| `time_seconds` | INT | nullable | Time taken on best attempt; used in parent dashboard stats |
+| `completed_at` | TIMESTAMP | nullable | Timestamp of first completion; used in recent activity feed |
+| `updated_at` | TIMESTAMP | DEFAULT now() | Tracks when best score was last improved |
+| — | UNIQUE | (learner_id, lesson_id) | One progress record per learner per lesson; enforces upsert semantics |
+
+---
 
 ### `chapter_quizzes`
-```sql
-id             UUID PRIMARY KEY DEFAULT gen_random_uuid()
-learner_id     UUID REFERENCES learners(id) ON DELETE CASCADE
-chapter_id     UUID REFERENCES chapters(id) ON DELETE CASCADE
-difficulty     VARCHAR NOT NULL           -- easy | medium | hard
-content        JSONB NOT NULL             -- LLM-generated, personalized (exercises only — no intro/result)
-stars_earned   SMALLINT DEFAULT 0
-score_correct  SMALLINT
-score_total    SMALLINT
-time_seconds   SMALLINT
-completed      BOOLEAN DEFAULT FALSE
-generated_at   TIMESTAMP DEFAULT now()
-completed_at   TIMESTAMP
-updated_at     TIMESTAMP DEFAULT now()
-UNIQUE(learner_id, chapter_id)
-```
+
+| Column | Type | Constraints | Reasoning |
+|--------|------|-------------|-----------|
+| `id` | UUID | PK, DEFAULT uuid7() | |
+| `learner_id` | UUID | FK → learners(id) ON DELETE CASCADE | Quiz is personalised per learner |
+| `chapter_id` | UUID | FK → chapters(id) ON DELETE CASCADE | Quiz covers one chapter |
+| `difficulty` | VARCHAR | NOT NULL | `easy \| medium \| hard`; set at generation time based on learner's avg stars in chapter |
+| `content` | JSONB | NOT NULL | LLM-generated personalised quiz; exercises only (no intro/result block) |
+| `stars_earned` | INT | DEFAULT 0 | Raw stars (0–3) from best attempt; effective_stars computed at query time via multiplier |
+| `score_correct` | INT | nullable | Correct answers on best attempt |
+| `score_total` | INT | nullable | Total quiz exercises |
+| `time_seconds` | INT | nullable | Time on best attempt |
+| `completed` | BOOLEAN | DEFAULT FALSE | Whether learner has submitted at least one attempt |
+| `generated_at` | TIMESTAMP | DEFAULT now() | When Claude generated the quiz |
+| `completed_at` | TIMESTAMP | nullable | Timestamp of first completion |
+| `updated_at` | TIMESTAMP | DEFAULT now() | Tracks when best score was last improved |
+| — | UNIQUE | (learner_id, chapter_id) | One quiz per learner per chapter; idempotent generation |
 
 ---
 
 ## Indexes
 
-```sql
-CREATE INDEX idx_learners_parent_id        ON learners(parent_id);
-CREATE INDEX idx_chapters_subject_order    ON chapters(subject, order_index);
-CREATE INDEX idx_lessons_chapter_order     ON lessons(chapter_id, order_index);
-CREATE INDEX idx_lessons_standard          ON lessons(standard_id);
-CREATE INDEX idx_lesson_progress_learner   ON lesson_progress(learner_id);
-CREATE INDEX idx_learners_total_stars      ON learners(total_stars);
-CREATE INDEX idx_learners_last_active      ON learners(last_active_at);
-CREATE INDEX idx_standards_subject_grade   ON standards(subject, grade_level);
-```
+| Index | Table | Columns | Reasoning |
+|-------|-------|---------|-----------|
+| `idx_learners_parent_id` | `learners` | `parent_id` | Every authenticated request lists a parent's learners |
+| `idx_chapters_subject_order` | `chapters` | `(subject, order_index)` | Curriculum fetch always filters by subject and orders by index |
+| `idx_lessons_chapter_order` | `lessons` | `(chapter_id, order_index)` | Curriculum fetch fetches all lessons for a chapter in order |
+| `idx_lessons_standard` | `lessons` | `standard_id` | Content generation checks which lessons already exist per standard |
+| `idx_lesson_progress_learner` | `lesson_progress` | `learner_id` | Lock state computation queries all progress for a learner; UNIQUE covers `(learner_id, lesson_id)` but single-column index needed for `WHERE learner_id = ?` alone |
+| `idx_learners_total_stars` | `learners` | `total_stars` | Leaderboard all-time ranking sorts by total_stars |
+| `idx_learners_last_active` | `learners` | `last_active_at` | Weekly/monthly leaderboard filters by last_active_at |
+| `idx_standards_subject_grade` | `standards` | `(subject, grade_level)` | Standards sync looks up existing records by subject and grade |
 
-Note: `UNIQUE` constraints on `lesson_progress(learner_id, lesson_id)` and `chapter_quizzes(learner_id, chapter_id)` create indexes automatically.
+`UNIQUE` constraints on `lesson_progress(learner_id, lesson_id)` and `chapter_quizzes(learner_id, chapter_id)` create indexes automatically — no explicit index needed for those columns.
 
 ---
 
@@ -891,7 +915,7 @@ Requires Cognito JWT (parent must be authenticated). Used to obtain a short-live
 ### Phase 1 — Foundation
 **Goal:** Project skeleton, DB connection, auth working end-to-end.
 
-- FastAPI project setup with 3-layer structure (`api/`, `services/`, `daos/`, `db/`, `schemas/`, `core/`)
+- FastAPI project setup with 3-layer structure (`api/`, `services/`, `daos/`, `db/`, `schemas/`, `clients/`, `core/`)
 - PostgreSQL connection via SQLAlchemy async engine
 - Alembic configured, initial migration with all tables and indexes
 - AWS Cognito integration: `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`
@@ -925,7 +949,7 @@ Requires Cognito JWT (parent must be authenticated). Used to obtain a short-live
 - `ContentGenerationService`:
   - On startup: check if `standards` table empty → fire background sync
   - Fetch NY State Math, Science, English standards from API → insert (idempotent)
-  - Per standard: call Claude → generate lesson JSONB (≥5 exercises, mixed types, per-exercise difficulty)
+  - Per standard: call Claude → generate lesson JSONB (15 exercises, mixed types, per-exercise difficulty)
   - Lessons within chapter ordered easy → medium → hard by `order_index`
 - `GET /subjects/{subject}/chapters?learner_id={id}` — chapters + lessons + lock states + chapter quiz state
 - `GET /lessons/{lesson_id}` — sanitized JSONB (correct answers stripped before response)
