@@ -50,3 +50,20 @@ async def client(db_session):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def authed_client(client, db_session):
+    """HTTP client with get_current_parent overridden to return a real parent from the test DB."""
+    import bcrypt
+
+    from app.api import deps
+    from app.daos.parent_dao import ParentDAO
+
+    parent = await ParentDAO(db_session).create(
+        cognito_id="test-cognito-id",
+        email="testparent@example.com",
+        pin_hash=bcrypt.hashpw(b"1234", bcrypt.gensalt()).decode(),
+    )
+    app.dependency_overrides[deps.get_current_parent] = lambda: parent
+    yield client, parent
