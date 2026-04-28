@@ -9,6 +9,7 @@ Backend for Smarty Steps, a learning app for 5–8 year olds covering Math, Scie
 - Always invoke the `superpowers:test-driven-development` skill before writing any implementation code.
 - Always separate code into three layers: **API (routers)** → **Service (business logic)** → **DAOs**. No business logic in routers. No DB calls in routers. Services never import FastAPI. DAOs never contain business logic.
 - Each task from an implementation plan gets its own branch (e.g. `feat/task-5-conftest`). Never bundle multiple tasks onto one branch.
+- All variables and functions must have descriptive, readable names that clearly convey their purpose. No single-letter names, abbreviations, or ambiguous shorthands (e.g. use `learner_id` not `lid`, `get_by_parent_id` not `get_bp`).
 
 ## Project Structure
 
