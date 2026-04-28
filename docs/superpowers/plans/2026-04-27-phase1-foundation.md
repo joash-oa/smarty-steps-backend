@@ -79,38 +79,41 @@ tests/
 - [ ] **Step 1: Create `pyproject.toml`**
 
 ```toml
-[tool.poetry]
+[project]
 name = "smarty-steps-backend"
 version = "0.1.0"
 description = "Smarty Steps learning app backend"
-authors = ["Joash Owusu-Ansah"]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.30.0",
+    "alembic>=1.13.0",
+    "pydantic-settings>=2.3.0",
+    "bcrypt>=4.1.0",
+    "httpx>=0.27.0",
+    "anthropic>=0.30.0",
+    "python-jose[cryptography]>=3.3.0",
+    "boto3>=1.34.0",
+    "uuid7>=0.1.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.12"
-fastapi = "^0.115.0"
-uvicorn = {extras = ["standard"], version = "^0.30.0"}
-sqlalchemy = {extras = ["asyncio"], version = "^2.0.0"}
-asyncpg = "^0.30.0"
-alembic = "^1.13.0"
-pydantic-settings = "^2.3.0"
-bcrypt = "^4.1.0"
-httpx = "^0.27.0"
-anthropic = "^0.30.0"
-python-jose = {extras = ["cryptography"], version = "^3.3.0"}
-boto3 = "^1.34.0"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.2.0"
-pytest-asyncio = "^0.23.0"
-anyio = {extras = ["trio"], version = "^4.4.0"}
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "anyio[trio]>=4.4.0",
+    "testcontainers[postgres]>=4.8.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 ```
 
 - [ ] **Step 2: Create `.env.example`**
@@ -139,15 +142,15 @@ touch app/__init__.py app/core/__init__.py app/db/__init__.py \
 - [ ] **Step 4: Install dependencies**
 
 ```bash
-poetry install
+uv sync
 ```
 
-Expected: dependencies installed, `poetry.lock` created.
+Expected: dependencies installed, `uv.lock` created.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add pyproject.toml poetry.lock .env.example app/ tests/
+git add pyproject.toml uv.lock .env.example app/ tests/
 git commit -m "feat: scaffold project structure"
 ```
 
@@ -175,7 +178,7 @@ def test_settings_loads():
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-poetry run pytest tests/test_config.py -v
+uv run pytest tests/test_config.py -v
 ```
 
 Expected: `ImportError: cannot import name 'settings' from 'app.core.config'`
@@ -212,7 +215,7 @@ cp .env.example .env
 - [ ] **Step 5: Run test to verify it passes**
 
 ```bash
-poetry run pytest tests/test_config.py -v
+uv run pytest tests/test_config.py -v
 ```
 
 Expected: `PASSED`
@@ -419,7 +422,7 @@ git commit -m "feat: add DB session and ORM models"
 - [ ] **Step 1: Initialize Alembic**
 
 ```bash
-poetry run alembic init alembic
+uv run alembic init alembic
 ```
 
 Expected: `alembic.ini` and `alembic/` directory created.
@@ -631,7 +634,7 @@ docker run -d --name smarty-pg \
   -e POSTGRES_DB=smarty_steps \
   -p 5432:5432 postgres:16
 
-poetry run alembic upgrade head
+uv run alembic upgrade head
 ```
 
 Expected: `Running upgrade -> 001, Initial schema — all tables + pg_uuidv7 extension`
@@ -740,7 +743,7 @@ async def test_health_returns_200(client):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-poetry run pytest tests/api/test_health.py -v
+uv run pytest tests/api/test_health.py -v
 ```
 
 Expected: `FAILED` — `ImportError` or `404` (app not wired yet).
@@ -772,7 +775,7 @@ app.include_router(health.router)
 - [ ] **Step 5: Run test to verify it passes**
 
 ```bash
-poetry run pytest tests/api/test_health.py -v
+uv run pytest tests/api/test_health.py -v
 ```
 
 Expected: `PASSED`
@@ -825,7 +828,7 @@ async def test_get_by_email_returns_none_when_missing(db_session):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-poetry run pytest tests/daos/test_parent_dao.py -v
+uv run pytest tests/daos/test_parent_dao.py -v
 ```
 
 Expected: `ImportError: cannot import name 'ParentDAO'`
@@ -865,7 +868,7 @@ class ParentDAO:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-poetry run pytest tests/daos/test_parent_dao.py -v
+uv run pytest tests/daos/test_parent_dao.py -v
 ```
 
 Expected: `PASSED` (2 tests)
@@ -1091,7 +1094,7 @@ async def test_refresh_returns_new_access_token(client):
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-poetry run pytest tests/api/test_auth.py -v
+uv run pytest tests/api/test_auth.py -v
 ```
 
 Expected: `ImportError` or `404` (routes not registered).
@@ -1254,7 +1257,7 @@ app.include_router(auth.router)
 - [ ] **Step 8: Run tests to verify they pass**
 
 ```bash
-poetry run pytest tests/api/test_auth.py -v
+uv run pytest tests/api/test_auth.py -v
 ```
 
 Expected: all 5 tests `PASSED`
@@ -1262,7 +1265,7 @@ Expected: all 5 tests `PASSED`
 - [ ] **Step 9: Run full test suite**
 
 ```bash
-poetry run pytest -v
+uv run pytest -v
 ```
 
 Expected: all tests pass, no warnings.
@@ -1289,17 +1292,16 @@ git commit -m "feat: add auth register/login/refresh with Cognito integration"
 ```dockerfile
 FROM python:3.12-slim
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 WORKDIR /app
 
-RUN pip install poetry==1.8.3 && \
-    poetry config virtualenvs.create false
-
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-dev --no-interaction
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
 
 COPY . .
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 - [ ] **Step 2: Create `docker-compose.yml` (local dev)**
@@ -1399,7 +1401,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install poetry && poetry install
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
       - name: Run tests
         env:
           DATABASE_URL: postgresql+asyncpg://unused:unused@localhost:5432/unused
@@ -1408,7 +1413,7 @@ jobs:
           COGNITO_REGION: us-east-1
           ANTHROPIC_API_KEY: dummy
           PARENT_JWT_SECRET: test-secret
-        run: poetry run pytest -v
+        run: uv run pytest -v
 ```
 
 - [ ] **Step 3: Create `.github/workflows/deploy-staging.yml`**
