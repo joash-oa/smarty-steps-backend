@@ -1,0 +1,25 @@
+name: Deploy — Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: staging)"
+        required: false
+        default: staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to prod EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_PROD_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            cd /opt/smarty-steps
+            IMAGE_TAG=${{ github.event.inputs.image_tag }} docker compose -f docker-compose.prod.yml pull
+            IMAGE_TAG=${{ github.event.inputs.image_tag }} docker compose -f docker-compose.prod.yml up -d
