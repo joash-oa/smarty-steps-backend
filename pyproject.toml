@@ -18,8 +18,8 @@ dependencies = [
     "uuid7>=0.1.0",
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.2.0",
     "pytest-asyncio>=0.23.0",
     "anyio[trio]>=4.4.0",
@@ -29,7 +29,3 @@ dev-dependencies = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
