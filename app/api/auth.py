@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
-from app.daos.parent_dao import ParentDAO
+
 from app.clients.cognito import get_cognito_client
+from app.daos.parent_dao import ParentDAO
+from app.db.session import get_db
+from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 from app.services.auth_service import AuthService
-from app.schemas.auth import RegisterRequest, LoginRequest, RefreshRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

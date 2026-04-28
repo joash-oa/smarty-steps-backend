@@ -1,18 +1,18 @@
-from uuid_extensions import uuid7
 from sqlalchemy import (
-    Column,
-    String,
-    Integer,
     Boolean,
-    Text,
-    ForeignKey,
+    Column,
     DateTime,
-    UniqueConstraint,
+    ForeignKey,
     Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func
+from uuid_extensions import uuid7
 
 
 class Base(DeclarativeBase):

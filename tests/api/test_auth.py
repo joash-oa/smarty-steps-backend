@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 REGISTER_PAYLOAD = {"email": "parent@example.com", "password": "Pass123!", "pin": "1234"}
 
