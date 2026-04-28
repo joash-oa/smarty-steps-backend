@@ -1,5 +1,8 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
+
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.db.models import Parent
 
 
@@ -20,4 +23,8 @@ class ParentDAO:
 
     async def get_by_email(self, email: str) -> Parent | None:
         result = await self.session.execute(select(Parent).where(Parent.email == email))
+        return result.scalar_one_or_none()
+
+    async def get_by_id(self, parent_id: UUID) -> Parent | None:
+        result = await self.session.execute(select(Parent).where(Parent.id == parent_id))
         return result.scalar_one_or_none()

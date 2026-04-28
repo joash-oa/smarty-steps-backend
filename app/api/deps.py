@@ -1,10 +1,11 @@
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
+
+from app.clients.cognito import CognitoAuthError, get_cognito_client
 from app.daos.parent_dao import ParentDAO
-from app.clients.cognito import get_cognito_client, CognitoAuthError
 from app.db.models import Parent
+from app.db.session import get_db
 
 bearer_scheme = HTTPBearer()
 

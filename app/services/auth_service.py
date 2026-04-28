@@ -1,6 +1,7 @@
 import bcrypt
 from fastapi import HTTPException
-from app.clients.cognito import CognitoClient, CognitoConflictError, CognitoAuthError
+
+from app.clients.cognito import CognitoAuthError, CognitoClient, CognitoConflictError
 from app.daos.parent_dao import ParentDAO
 
 
