@@ -32,7 +32,7 @@ tests/
 - PostgreSQL (Amazon RDS) — JSONB for lesson/quiz content
 - SQLAlchemy + Alembic — all PKs use `uuid7()` via `pg_uuidv7` extension
 - AWS Cognito — parent auth, JWT issuance
-- Kubernetes — compute
+- EC2 + Docker Compose — compute
 - Claude (Anthropic API) — lesson and chapter quiz content generation
 
 ## Key Design Decisions
