@@ -26,7 +26,5 @@ class ParentDAO:
         return result.scalar_one_or_none()
 
     async def get_by_id(self, parent_id: UUID) -> Parent | None:
-        result = await self.session.execute(
-            select(Parent).where(Parent.id == parent_id)
-        )
+        result = await self.session.execute(select(Parent).where(Parent.id == parent_id))
         return result.scalar_one_or_none()
