@@ -2,6 +2,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from testcontainers.postgres import PostgresContainer
 
 from app.db.models import Base
@@ -22,22 +23,22 @@ def db_url(postgres_container):
     return postgres_container.get_connection_url()
 
 
-@pytest.fixture(scope="session")
-def test_engine(db_url):
-    return create_async_engine(db_url, echo=False)
+@pytest_asyncio.fixture
+async def db_session(db_url):
+    engine = create_async_engine(db_url, echo=False, poolclass=NullPool)
 
-
-@pytest_asyncio.fixture(autouse=True)
-async def db_session(test_engine):
-    async with test_engine.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async with async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)() as session:
-        yield session
-        await session.rollback()
+    session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)()
+    yield session
+    await session.rollback()
+    await session.close()
 
-    async with test_engine.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture
