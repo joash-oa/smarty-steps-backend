@@ -39,7 +39,7 @@ tests/
 - PostgreSQL (Amazon RDS) with JSONB for lesson content
 - SQLAlchemy + Alembic
 - AWS Cognito (auth — parent registration, login, JWT issuance)
-- Kubernetes (compute)
+- EC2 + Docker Compose (compute)
 - Claude (Anthropic API) — lesson and chapter quiz content generation
 
 ---
@@ -913,16 +913,22 @@ Requires Cognito JWT (parent must be authenticated). Used to obtain a short-live
 ## Implementation Phases
 
 ### Phase 1 — Foundation
-**Goal:** Project skeleton, DB connection, auth working end-to-end.
+**Goal:** Project skeleton, DB connection, auth working end-to-end, infra provisioned.
 
 - FastAPI project setup with 3-layer structure (`api/`, `services/`, `daos/`, `db/`, `schemas/`, `clients/`, `core/`)
 - PostgreSQL connection via SQLAlchemy async engine
-- Alembic configured, initial migration with all tables and indexes
+- Alembic configured, initial migration with all tables and indexes (`pg_uuidv7` extension enabled)
 - AWS Cognito integration: `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`
 - JWT middleware: all protected routes validate Cognito JWT
 - Health check endpoint: `GET /health`
-- Docker + docker-compose for local dev
-- Kubernetes manifests (Deployment, Service, ConfigMap)
+- `docker-compose.yml` for local dev (FastAPI + PostgreSQL)
+- `docker-compose.prod.yml` for EC2 deployment
+- Two EC2 instances provisioned: staging and prod (Docker + Docker Compose installed)
+- GitHub Actions CI/CD:
+  - Push to `main` → SSH into staging EC2 → `docker compose up -d --build`
+  - Manual trigger → deploy to prod EC2
+  - Secrets: `EC2_STAGING_HOST`, `EC2_PROD_HOST`, `EC2_SSH_KEY`
+- `.env.example` committed; actual `.env` lives on each EC2 instance only (DB credentials, Cognito config, Claude API key)
 - pytest configured with async test DB (separate schema, rolls back after each test)
 
 **Tests:** auth flow integration tests, DB connection test, health check test.

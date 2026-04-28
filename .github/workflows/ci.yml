@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://unused:unused@localhost:5432/unused
+          COGNITO_USER_POOL_ID: dummy
+          COGNITO_CLIENT_ID: dummy
+          COGNITO_REGION: us-east-1
+          ANTHROPIC_API_KEY: dummy
+          PARENT_JWT_SECRET: test-secret
+        run: uv run pytest -v
