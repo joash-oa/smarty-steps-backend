@@ -1,7 +1,14 @@
 from uuid_extensions import uuid7
 from sqlalchemy import (
-    Column, String, Integer, Boolean, Text, ForeignKey,
-    DateTime, UniqueConstraint, Index,
+    Column,
+    String,
+    Integer,
+    Boolean,
+    Text,
+    ForeignKey,
+    DateTime,
+    UniqueConstraint,
+    Index,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -28,7 +35,9 @@ class Learner(Base):
     __tablename__ = "learners"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
-    parent_id = Column(UUID(as_uuid=True), ForeignKey("parents.id", ondelete="CASCADE"), nullable=False)
+    parent_id = Column(
+        UUID(as_uuid=True), ForeignKey("parents.id", ondelete="CASCADE"), nullable=False
+    )
     name = Column(String, nullable=False)
     age = Column(Integer, nullable=False)
     grade_level = Column(Integer, nullable=False)
@@ -61,9 +70,7 @@ class Standard(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    __table_args__ = (
-        Index("idx_standards_subject_grade", "subject", "grade_level"),
-    )
+    __table_args__ = (Index("idx_standards_subject_grade", "subject", "grade_level"),)
 
 
 class Chapter(Base):
@@ -76,17 +83,19 @@ class Chapter(Base):
 
     lessons = relationship("Lesson", back_populates="chapter", cascade="all, delete-orphan")
 
-    __table_args__ = (
-        Index("idx_chapters_subject_order", "subject", "order_index"),
-    )
+    __table_args__ = (Index("idx_chapters_subject_order", "subject", "order_index"),)
 
 
 class Lesson(Base):
     __tablename__ = "lessons"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
-    chapter_id = Column(UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
-    standard_id = Column(UUID(as_uuid=True), ForeignKey("standards.id", ondelete="SET NULL"), nullable=True)
+    chapter_id = Column(
+        UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False
+    )
+    standard_id = Column(
+        UUID(as_uuid=True), ForeignKey("standards.id", ondelete="SET NULL"), nullable=True
+    )
     subject = Column(String, nullable=False)
     title = Column(String, nullable=False)
     difficulty = Column(String, nullable=False, server_default="easy")
@@ -106,8 +115,12 @@ class LessonProgress(Base):
     __tablename__ = "lesson_progress"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
-    learner_id = Column(UUID(as_uuid=True), ForeignKey("learners.id", ondelete="CASCADE"), nullable=False)
-    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
+    learner_id = Column(
+        UUID(as_uuid=True), ForeignKey("learners.id", ondelete="CASCADE"), nullable=False
+    )
+    lesson_id = Column(
+        UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False
+    )
     completed = Column(Boolean, server_default="false")
     stars_earned = Column(Integer, server_default="0")
     score_correct = Column(Integer, nullable=True)
@@ -126,8 +139,12 @@ class ChapterQuiz(Base):
     __tablename__ = "chapter_quizzes"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
-    learner_id = Column(UUID(as_uuid=True), ForeignKey("learners.id", ondelete="CASCADE"), nullable=False)
-    chapter_id = Column(UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
+    learner_id = Column(
+        UUID(as_uuid=True), ForeignKey("learners.id", ondelete="CASCADE"), nullable=False
+    )
+    chapter_id = Column(
+        UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False
+    )
     difficulty = Column(String, nullable=False)
     content = Column(JSONB, nullable=False)
     stars_earned = Column(Integer, server_default="0")
@@ -139,6 +156,4 @@ class ChapterQuiz(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("learner_id", "chapter_id", name="uq_chapter_quiz"),
-    )
+    __table_args__ = (UniqueConstraint("learner_id", "chapter_id", name="uq_chapter_quiz"),)
