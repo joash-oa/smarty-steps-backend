@@ -1,4 +1,4 @@
-import uuid7
+from uuid_extensions import uuid7
 from sqlalchemy import (
     Column, String, Integer, Boolean, Text, ForeignKey,
     DateTime, UniqueConstraint, Index,
@@ -15,7 +15,7 @@ class Base(DeclarativeBase):
 class Parent(Base):
     __tablename__ = "parents"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7.uuid7)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     cognito_id = Column(String, unique=True, nullable=False)
     email = Column(String, unique=True, nullable=False)
     pin_hash = Column(String, nullable=False)
@@ -27,7 +27,7 @@ class Parent(Base):
 class Learner(Base):
     __tablename__ = "learners"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7.uuid7)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     parent_id = Column(UUID(as_uuid=True), ForeignKey("parents.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     age = Column(Integer, nullable=False)
@@ -53,7 +53,7 @@ class Learner(Base):
 class Standard(Base):
     __tablename__ = "standards"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7.uuid7)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     code = Column(String, unique=True, nullable=False)
     subject = Column(String, nullable=False)
     grade_level = Column(Integer, nullable=False)
@@ -69,7 +69,7 @@ class Standard(Base):
 class Chapter(Base):
     __tablename__ = "chapters"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7.uuid7)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     subject = Column(String, nullable=False)
     title = Column(String, nullable=False)
     order_index = Column(Integer, nullable=False)
@@ -84,7 +84,7 @@ class Chapter(Base):
 class Lesson(Base):
     __tablename__ = "lessons"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7.uuid7)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     chapter_id = Column(UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
     standard_id = Column(UUID(as_uuid=True), ForeignKey("standards.id", ondelete="SET NULL"), nullable=True)
     subject = Column(String, nullable=False)
@@ -105,7 +105,7 @@ class Lesson(Base):
 class LessonProgress(Base):
     __tablename__ = "lesson_progress"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7.uuid7)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     learner_id = Column(UUID(as_uuid=True), ForeignKey("learners.id", ondelete="CASCADE"), nullable=False)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
     completed = Column(Boolean, server_default="false")
@@ -125,7 +125,7 @@ class LessonProgress(Base):
 class ChapterQuiz(Base):
     __tablename__ = "chapter_quizzes"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7.uuid7)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     learner_id = Column(UUID(as_uuid=True), ForeignKey("learners.id", ondelete="CASCADE"), nullable=False)
     chapter_id = Column(UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
     difficulty = Column(String, nullable=False)
