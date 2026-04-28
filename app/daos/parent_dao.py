@@ -15,13 +15,9 @@ class ParentDAO:
         return parent
 
     async def get_by_cognito_id(self, cognito_id: str) -> Parent | None:
-        result = await self.session.execute(
-            select(Parent).where(Parent.cognito_id == cognito_id)
-        )
+        result = await self.session.execute(select(Parent).where(Parent.cognito_id == cognito_id))
         return result.scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> Parent | None:
-        result = await self.session.execute(
-            select(Parent).where(Parent.email == email)
-        )
+        result = await self.session.execute(select(Parent).where(Parent.email == email))
         return result.scalar_one_or_none()
