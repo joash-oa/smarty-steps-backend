@@ -8,10 +8,12 @@ REGISTER_PAYLOAD = {"email": "parent@example.com", "password": "Pass123!", "pin"
 async def test_register_returns_tokens(client):
     mock_cognito = MagicMock()
     mock_cognito.register = MagicMock(return_value="cognito-sub-abc")
-    mock_cognito.login = MagicMock(return_value={
-        "access_token": "fake-access",
-        "refresh_token": "fake-refresh",
-    })
+    mock_cognito.login = MagicMock(
+        return_value={
+            "access_token": "fake-access",
+            "refresh_token": "fake-refresh",
+        }
+    )
     with patch("app.api.auth.get_cognito_client", return_value=mock_cognito):
         response = await client.post("/auth/register", json=REGISTER_PAYLOAD)
     assert response.status_code == 201
@@ -23,23 +25,23 @@ async def test_register_returns_tokens(client):
 
 @pytest.mark.asyncio
 async def test_register_rejects_invalid_pin(client):
-    response = await client.post("/auth/register", json={
-        **REGISTER_PAYLOAD, "pin": "12"
-    })
+    response = await client.post("/auth/register", json={**REGISTER_PAYLOAD, "pin": "12"})
     assert response.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_login_returns_tokens(client):
     mock_cognito = MagicMock()
-    mock_cognito.login = MagicMock(return_value={
-        "access_token": "fake-access",
-        "refresh_token": "fake-refresh",
-    })
+    mock_cognito.login = MagicMock(
+        return_value={
+            "access_token": "fake-access",
+            "refresh_token": "fake-refresh",
+        }
+    )
     with patch("app.api.auth.get_cognito_client", return_value=mock_cognito):
-        response = await client.post("/auth/login", json={
-            "email": "parent@example.com", "password": "Pass123!"
-        })
+        response = await client.post(
+            "/auth/login", json={"email": "parent@example.com", "password": "Pass123!"}
+        )
     assert response.status_code == 200
     assert response.json()["access_token"] == "fake-access"
 
@@ -47,12 +49,11 @@ async def test_login_returns_tokens(client):
 @pytest.mark.asyncio
 async def test_login_401_on_bad_credentials(client):
     from app.clients.cognito import CognitoAuthError
+
     mock_cognito = MagicMock()
     mock_cognito.login = MagicMock(side_effect=CognitoAuthError("bad"))
     with patch("app.api.auth.get_cognito_client", return_value=mock_cognito):
-        response = await client.post("/auth/login", json={
-            "email": "x@x.com", "password": "wrong"
-        })
+        response = await client.post("/auth/login", json={"email": "x@x.com", "password": "wrong"})
     assert response.status_code == 401
 
 
