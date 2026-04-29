@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import auth, curriculum, health, learners, parent, progress
+from app.api import auth, curriculum, health, learners, parent, progress, quizzes
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +49,4 @@ app.include_router(learners.router)
 app.include_router(parent.router)
 app.include_router(curriculum.router)
 app.include_router(progress.router)
+app.include_router(quizzes.router)
