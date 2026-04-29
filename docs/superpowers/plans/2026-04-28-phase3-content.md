@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Seed chapters, sync NY State standards from the ASN API, generate lesson content via Claude (15 exercises per lesson, mixed types), and serve the curriculum with per-learner lock states and sanitized lesson JSONB.
+**Goal:** Sync NY State standards from the ASN API, auto-create chapters from standard domains, generate lesson content via Claude (15 exercises per lesson, mixed types), and serve the curriculum with per-learner lock states and sanitized lesson JSONB.
 
-**Architecture:** `ContentService` (background task, non-blocking) owns standards sync + lesson generation. `LessonService` owns lock-state computation (pure function, no DB) and JSONB sanitization. `LessonDAO` is the sole DB interface for curriculum data. `StandardsAPIClient` and `ClaudeClient` are injectable clients; tests mock them.
+**Architecture:** `ContentService` (background task, non-blocking) owns standards sync + chapter creation + lesson generation. Chapters are created dynamically from ASN standard domains — not pre-seeded. `LessonService` owns lock-state computation (pure function, no DB) and JSONB sanitization. `LessonDAO` is the sole DB interface for curriculum data. `StandardsAPIClient` and `ClaudeClient` are injectable clients; tests mock them.
 
 **Tech Stack:** Python 3.12, FastAPI lifespan hook, asyncio.create_task, httpx, anthropic SDK (claude-opus-4-7 with prompt caching), SQLAlchemy async, pytest-asyncio, unittest.mock
 
@@ -15,28 +15,30 @@
 ```
 app/
   clients/
-    standards_api.py         — Create: StandardsAPIClient (fetch NY State standards via ASN API)
+    standards_api.py         — Create: StandardsAPIClient (fetch NY State standards via ASN API,
+                                        StandardData includes domain field for chapter grouping)
     claude_client.py         — Create: ClaudeClient (generate lesson JSONB via Anthropic SDK)
   daos/
-    lesson_dao.py            — Create: get_chapters_by_subject, get_lesson_by_id,
+    lesson_dao.py            — Create: get_chapters_by_subject, get_or_create_chapter,
+                                        get_lesson_by_id, get_lessons_by_chapter,
                                         count_lessons_in_chapter, get_lesson_by_standard,
                                         create_lesson, get_standard_by_code, create_standard,
                                         count_standards
   services/
-    content_service.py       — Create: ContentService (sync_standards, generate_lesson)
+    content_service.py       — Create: ContentService (sync_subject_grade, sync_all)
+                                        Chapters auto-created from ASN standard domains.
     lesson_service.py        — Create: LessonService (compute_lock_states, sanitize_lesson,
-                                                       build_curriculum_response)
+                                                       compute_effective_stars)
   schemas/
     curriculum.py            — Create: ChapterResponse, LessonSummary, QuizState,
                                         CurriculumResponse, LessonDetailResponse
   api/
     curriculum.py            — Create: GET /subjects/{subject}/chapters, GET /lessons/{lesson_id}
+  daos/
+    progress_dao.py          — Create: stub (Phase 4 fills in)
   core/
     config.py                — Modify: add standards_api_base_url field
   main.py                    — Modify: add lifespan hook for background sync
-alembic/
-  versions/
-    002_seed_chapters.py     — Create: insert 15 chapters (5 per subject)
 tests/
   daos/
     test_lesson_dao.py       — Create
@@ -49,104 +51,12 @@ tests/
 
 ---
 
-### Task 1: Chapter seed migration
-
-**Files:**
-- Create: `alembic/versions/002_seed_chapters.py`
-
-No tests — verified by running migration and checking row count.
-
-- [ ] **Step 1: Create `alembic/versions/002_seed_chapters.py`**
-
-```python
-"""Seed chapters — hand-crafted topic groupings for Math, Science, English
-
-Revision ID: 002
-Revises: 001
-Create Date: 2026-04-28
-"""
-from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
-
-revision = "002"
-down_revision = "001"
-branch_labels = None
-depends_on = None
-
-CHAPTERS = [
-    # Math
-    {"subject": "math", "title": "Counting & Numbers",     "order_index": 1},
-    {"subject": "math", "title": "Addition & Subtraction", "order_index": 2},
-    {"subject": "math", "title": "Place Value",            "order_index": 3},
-    {"subject": "math", "title": "Measurement & Data",     "order_index": 4},
-    {"subject": "math", "title": "Shapes & Geometry",      "order_index": 5},
-    # Science
-    {"subject": "science", "title": "Living Things",    "order_index": 1},
-    {"subject": "science", "title": "Earth & Sky",      "order_index": 2},
-    {"subject": "science", "title": "Matter & Materials","order_index": 3},
-    {"subject": "science", "title": "Forces & Motion",  "order_index": 4},
-    {"subject": "science", "title": "Ecosystems",       "order_index": 5},
-    # English
-    {"subject": "english", "title": "Letters & Sounds",       "order_index": 1},
-    {"subject": "english", "title": "Reading Comprehension",   "order_index": 2},
-    {"subject": "english", "title": "Vocabulary & Word Meanings","order_index": 3},
-    {"subject": "english", "title": "Writing & Grammar",       "order_index": 4},
-    {"subject": "english", "title": "Literature & Stories",    "order_index": 5},
-]
-
-
-def upgrade() -> None:
-    chapters_table = sa.table(
-        "chapters",
-        sa.column("id", UUID(as_uuid=True)),
-        sa.column("subject", sa.String),
-        sa.column("title", sa.String),
-        sa.column("order_index", sa.Integer),
-    )
-    op.bulk_insert(chapters_table, [
-        {
-            "id": sa.text("gen_random_uuid()"),
-            **ch,
-        }
-        for ch in CHAPTERS
-    ])
-
-
-def downgrade() -> None:
-    op.execute("DELETE FROM chapters")
-```
-
-- [ ] **Step 2: Run migration against local DB**
-
-```bash
-uv run alembic upgrade head
-```
-
-Expected: `Running upgrade 001 -> 002, Seed chapters`
-
-- [ ] **Step 3: Verify chapter rows**
-
-```bash
-docker exec smarty-pg psql -U smarty -d smarty_steps -c "SELECT subject, title, order_index FROM chapters ORDER BY subject, order_index;"
-```
-
-Expected: 15 rows across math, science, english.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add alembic/versions/002_seed_chapters.py
-git commit -m "feat: seed 15 chapters via Alembic migration"
-```
-
----
-
-### Task 2: Settings update + StandardsAPIClient
+### Task 1: Settings update + StandardsAPIClient
 
 **Files:**
 - Modify: `app/core/config.py`
 - Create: `app/clients/standards_api.py`
+- Modify: `.env.example`
 
 - [ ] **Step 1: Add `standards_api_base_url` to `app/core/config.py`**
 
@@ -178,8 +88,9 @@ STANDARDS_API_BASE_URL=http://asn.desire2learn.com/resources.json
 
 - [ ] **Step 3: Implement `app/clients/standards_api.py`**
 
-The ASN (Achievement Standards Network) API returns standards in JSON-LD format.
-Query parameters: `jurisdiction` (state code), `gradeBegin`/`gradeEnd`, `subjectArea`.
+The ASN API returns standards in JSON-LD format. Each standard belongs to a domain (strand)
+identified by the prefix of its `statementNotation` (e.g. "K.CC" → "Counting & Cardinality").
+The `domain` field drives chapter auto-creation in `ContentService`.
 
 ```python
 from dataclasses import dataclass
@@ -199,10 +110,27 @@ GRADE_MAP = {0: "K", 1: "1", 2: "2", 3: "3"}
 @dataclass
 class StandardData:
     code: str
-    subject: str         # "math" | "science" | "english"
-    grade_level: int     # 0-3
+    subject: str          # "math" | "science" | "english"
+    grade_level: int      # 0-3
     title: str
     description: Optional[str]
+    domain: str           # chapter grouping, e.g. "Counting & Cardinality"
+
+
+def _extract_domain(item: dict, subject: str) -> str:
+    """Derive a human-readable domain name for chapter grouping.
+
+    ASN standards have a 'subject' field at the broader strand level, or we fall back
+    to the notation prefix (e.g. 'K.CC' from 'K.CC.1') to group related standards.
+    """
+    notation = item.get("statementNotation", "")
+    if notation and "." in notation:
+        # Take up to the second segment: "K.CC.1" → "K.CC"
+        parts = notation.split(".")
+        prefix = ".".join(parts[:2])
+        return prefix
+    # Fall back to broad subject label
+    return SUBJECT_MAP.get(subject, subject.title())
 
 
 class StandardsAPIClient:
@@ -227,7 +155,6 @@ class StandardsAPIClient:
         for item in data.get("resources", []):
             description = item.get("description", "")
             identifier = item.get("identifier", "")
-            # Use full URI as code if identifier is missing
             code = identifier or item.get("uri", "").split("/")[-1]
             title = item.get("statementNotation", identifier) or description[:80]
             if not code or not description:
@@ -238,6 +165,7 @@ class StandardsAPIClient:
                 grade_level=grade_level,
                 title=title,
                 description=description,
+                domain=_extract_domain(item, subject),
             ))
         return results
 ```
@@ -246,21 +174,21 @@ class StandardsAPIClient:
 
 ```bash
 git add app/core/config.py app/clients/standards_api.py .env.example
-git commit -m "feat: add StandardsAPIClient and standards_api_base_url setting"
+git commit -m "feat(p3-task1): add StandardsAPIClient with domain extraction and standards_api_base_url setting"
 ```
 
 ---
 
-### Task 3: ClaudeClient for lesson generation
+### Task 2: ClaudeClient for lesson generation
 
 **Files:**
 - Create: `app/clients/claude_client.py`
 
-No unit tests — integration with the real Anthropic API is validated end-to-end in ContentService tests. The client is injectable so ContentService tests mock it.
+No unit tests — the client is injectable so ContentService tests mock it.
 
 - [ ] **Step 1: Implement `app/clients/claude_client.py`**
 
-Uses `claude-opus-4-7` with prompt caching on the system prompt (the lesson schema is large and stable — good cache candidate).
+Uses `claude-opus-4-7` with prompt caching on the system prompt.
 
 ```python
 import json
@@ -334,7 +262,9 @@ class ClaudeClient:
     def __init__(self):
         self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
-    async def generate_lesson(self, standard_title: str, standard_description: str, subject: str, grade_level: int) -> dict:
+    async def generate_lesson(
+        self, standard_title: str, standard_description: str, subject: str, grade_level: int
+    ) -> dict:
         """Generate lesson JSONB for a standard. Returns parsed dict."""
         grade_label = {0: "Kindergarten", 1: "Grade 1", 2: "Grade 2", 3: "Grade 3"}[grade_level]
         user_message = (
@@ -373,12 +303,12 @@ def get_claude_client() -> ClaudeClient:
 
 ```bash
 git add app/clients/claude_client.py
-git commit -m "feat: add ClaudeClient for lesson JSONB generation (claude-opus-4-7 + prompt caching)"
+git commit -m "feat(p3-task2): add ClaudeClient for lesson JSONB generation (claude-opus-4-7 + prompt caching)"
 ```
 
 ---
 
-### Task 4: LessonDAO + tests
+### Task 3: LessonDAO + tests
 
 **Files:**
 - Create: `app/daos/lesson_dao.py`
@@ -393,13 +323,6 @@ import pytest
 from uuid_extensions import uuid7
 from app.daos.lesson_dao import LessonDAO
 from app.db.models import Chapter, Standard, Lesson
-
-
-async def _seed_chapter(db_session, subject="math", order=1) -> Chapter:
-    ch = Chapter(subject=subject, title=f"Chapter {order}", order_index=order)
-    db_session.add(ch)
-    await db_session.flush()
-    return ch
 
 
 async def _seed_standard(db_session, subject="math", grade=1) -> Standard:
@@ -421,38 +344,47 @@ LESSON_CONTENT = {
 
 
 @pytest.mark.asyncio
-async def test_create_and_get_lesson(db_session):
-    ch = await _seed_chapter(db_session)
-    st = await _seed_standard(db_session)
+async def test_get_or_create_chapter_creates_on_first_call(db_session):
     dao = LessonDAO(db_session)
+    ch = await dao.get_or_create_chapter(subject="math", domain="K.CC")
+    assert ch.id is not None
+    assert ch.title == "K.CC"
+    assert ch.subject == "math"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_chapter_is_idempotent(db_session):
+    dao = LessonDAO(db_session)
+    ch1 = await dao.get_or_create_chapter(subject="math", domain="K.OA")
+    ch2 = await dao.get_or_create_chapter(subject="math", domain="K.OA")
+    assert ch1.id == ch2.id
+
+
+@pytest.mark.asyncio
+async def test_create_and_get_lesson(db_session):
+    dao = LessonDAO(db_session)
+    ch = await dao.get_or_create_chapter(subject="math", domain="K.CC")
+    st = await _seed_standard(db_session)
     lesson = await dao.create_lesson(
         chapter_id=ch.id, standard_id=st.id, subject="math",
         title="Counting to 10", difficulty="easy", order_index=1,
         content=LESSON_CONTENT,
     )
     assert lesson.id is not None
-
     fetched = await dao.get_lesson_by_id(lesson.id)
     assert fetched is not None
     assert fetched.title == "Counting to 10"
 
 
 @pytest.mark.asyncio
-async def test_get_chapters_by_subject(db_session):
-    # Chapters are already seeded by migration; but testcontainers uses create_all not migrations.
-    # So we insert chapters directly in test.
-    ch1 = await _seed_chapter(db_session, subject="math", order=10)
-    ch2 = await _seed_chapter(db_session, subject="math", order=11)
-    await _seed_chapter(db_session, subject="science", order=1)
-
+async def test_get_chapters_by_subject_ordered(db_session):
     dao = LessonDAO(db_session)
-    chapters = await dao.get_chapters_by_subject("math")
-    # At minimum ch1 and ch2 should be present
-    chapter_ids = [c.id for c in chapters]
-    assert ch1.id in chapter_ids
-    assert ch2.id in chapter_ids
-    assert all(c.subject == "math" for c in chapters)
-    # Ordered by order_index
+    ch1 = await dao.get_or_create_chapter(subject="science", domain="Domain A")
+    ch2 = await dao.get_or_create_chapter(subject="science", domain="Domain B")
+    chapters = await dao.get_chapters_by_subject("science")
+    ids = [c.id for c in chapters]
+    assert ch1.id in ids
+    assert ch2.id in ids
     orders = [c.order_index for c in chapters]
     assert orders == sorted(orders)
 
@@ -460,8 +392,6 @@ async def test_get_chapters_by_subject(db_session):
 @pytest.mark.asyncio
 async def test_count_standards_returns_zero_on_empty(db_session):
     dao = LessonDAO(db_session)
-    # count_standards counts ALL standards; in isolation test this may be > 0 from other tests.
-    # Just verify it returns an integer >= 0.
     count = await dao.count_standards()
     assert count >= 0
 
@@ -475,9 +405,9 @@ async def test_get_standard_by_code_returns_none_when_missing(db_session):
 
 @pytest.mark.asyncio
 async def test_count_lessons_in_chapter(db_session):
-    ch = await _seed_chapter(db_session, subject="english", order=20)
-    st = await _seed_standard(db_session, subject="english", grade=1)
     dao = LessonDAO(db_session)
+    ch = await dao.get_or_create_chapter(subject="english", domain="ELA.RL")
+    st = await _seed_standard(db_session, subject="english", grade=1)
     await dao.create_lesson(
         chapter_id=ch.id, standard_id=st.id, subject="english",
         title="L1", difficulty="easy", order_index=1, content=LESSON_CONTENT,
@@ -511,6 +441,27 @@ from app.db.models import Chapter, Lesson, Standard
 class LessonDAO:
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def get_or_create_chapter(self, subject: str, domain: str) -> Chapter:
+        """Return existing chapter for this subject+domain, or create it."""
+        result = await self.session.execute(
+            select(Chapter).where(Chapter.subject == subject, Chapter.title == domain)
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            return existing
+
+        # Assign next order_index for this subject
+        count_result = await self.session.execute(
+            select(func.count()).select_from(Chapter).where(Chapter.subject == subject)
+        )
+        next_order = (count_result.scalar_one() or 0) + 1
+
+        chapter = Chapter(subject=subject, title=domain, order_index=next_order)
+        self.session.add(chapter)
+        await self.session.flush()
+        await self.session.refresh(chapter)
+        return chapter
 
     async def get_chapters_by_subject(self, subject: str) -> list[Chapter]:
         result = await self.session.execute(
@@ -609,18 +560,18 @@ class LessonDAO:
 uv run pytest tests/daos/test_lesson_dao.py -v
 ```
 
-Expected: all 5 tests `PASSED`
+Expected: all 7 tests `PASSED`
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add app/daos/lesson_dao.py tests/daos/test_lesson_dao.py
-git commit -m "feat: add LessonDAO for curriculum and standards data access"
+git commit -m "feat(p3-task3): add LessonDAO with get_or_create_chapter for dynamic chapter creation"
 ```
 
 ---
 
-### Task 5: ContentService + tests
+### Task 4: ContentService + tests
 
 **Files:**
 - Create: `app/services/content_service.py`
@@ -632,12 +583,9 @@ Create `tests/services/test_content_service.py`:
 
 ```python
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from app.services.content_service import ContentService
 from app.clients.standards_api import StandardData
-
-SUBJECTS = ["math", "science", "english"]
-GRADE_LEVELS = [0, 1, 2, 3]
 
 MOCK_STANDARD = StandardData(
     code="NY-TEST.1",
@@ -645,14 +593,17 @@ MOCK_STANDARD = StandardData(
     grade_level=1,
     title="Count to 20",
     description="Students can count to 20.",
+    domain="K.CC",
 )
 
 MOCK_LESSON_CONTENT = {
     "intro": {"title": "Count to 20", "description": "D", "mascot_quote": "Q"},
-    "exercises": [{"id": f"ex_{i}", "type": "multiple_choice", "difficulty": "easy",
-                   "prompt": "Q?", "mascot_hint": "H", "options": [],
-                   "correct_option_id": "a", "explanation": "E"}
-                  for i in range(1, 16)],
+    "exercises": [
+        {"id": f"ex_{i}", "type": "multiple_choice", "difficulty": "easy",
+         "prompt": "Q?", "mascot_hint": "H", "options": [],
+         "correct_option_id": "a", "explanation": "E"}
+        for i in range(1, 16)
+    ],
     "result": {"badge_name": "B", "badge_description": "BD"},
     "stars_available": 3,
 }
@@ -660,16 +611,15 @@ MOCK_LESSON_CONTENT = {
 
 @pytest.mark.asyncio
 async def test_sync_skips_existing_standard(db_session):
-    """If standard code already exists, it's not inserted again."""
+    """If a standard already has a lesson, it's skipped entirely."""
     mock_api = MagicMock()
     mock_api.fetch_standards = AsyncMock(return_value=[MOCK_STANDARD])
-
     mock_claude = MagicMock()
     mock_claude.generate_lesson = AsyncMock(return_value=MOCK_LESSON_CONTENT)
 
     from app.daos.lesson_dao import LessonDAO
     from app.db.models import Standard
-    # Pre-insert the standard
+
     existing = Standard(
         code=MOCK_STANDARD.code, subject="math", grade_level=1,
         title="Already exists", description="D",
@@ -677,35 +627,47 @@ async def test_sync_skips_existing_standard(db_session):
     db_session.add(existing)
     await db_session.flush()
 
-    svc = ContentService(lesson_dao=LessonDAO(db_session), standards_api=mock_api, claude=mock_claude)
+    dao = LessonDAO(db_session)
+    ch = await dao.get_or_create_chapter(subject="math", domain=MOCK_STANDARD.domain)
+    await dao.create_lesson(
+        chapter_id=ch.id, standard_id=existing.id, subject="math",
+        title="Existing lesson", difficulty="easy", order_index=1,
+        content=MOCK_LESSON_CONTENT,
+    )
+
+    svc = ContentService(lesson_dao=dao, standards_api=mock_api, claude=mock_claude)
     await svc.sync_subject_grade("math", 1)
 
-    # Claude should NOT have been called (standard already exists, lesson already skipped)
     mock_claude.generate_lesson.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_sync_inserts_standard_and_generates_lesson(db_session):
-    """New standard → insert standard → generate lesson."""
+async def test_sync_creates_chapter_and_lesson_for_new_standard(db_session):
+    """New standard → auto-create chapter from domain → generate lesson."""
+    from uuid_extensions import uuid7
     mock_api = MagicMock()
-    unique_code = f"NY-NEW-{id(db_session)}"
-    std = StandardData(code=unique_code, subject="math", grade_level=2,
-                       title="New Standard", description="Description.")
+    unique_code = f"NY-NEW-{uuid7()}"
+    std = StandardData(
+        code=unique_code, subject="math", grade_level=2,
+        title="New Standard", description="Description.",
+        domain="2.NBT",
+    )
     mock_api.fetch_standards = AsyncMock(return_value=[std])
     mock_claude = MagicMock()
     mock_claude.generate_lesson = AsyncMock(return_value=MOCK_LESSON_CONTENT)
 
     from app.daos.lesson_dao import LessonDAO
-    # Need a chapter to attach lesson to
-    from app.db.models import Chapter
-    ch = Chapter(subject="math", title="Test Ch", order_index=99)
-    db_session.add(ch)
-    await db_session.flush()
+    dao = LessonDAO(db_session)
 
-    svc = ContentService(lesson_dao=LessonDAO(db_session), standards_api=mock_api, claude=mock_claude)
+    svc = ContentService(lesson_dao=dao, standards_api=mock_api, claude=mock_claude)
     await svc.sync_subject_grade("math", 2)
 
     mock_claude.generate_lesson.assert_awaited_once()
+
+    # Chapter should have been auto-created from domain
+    chapters = await dao.get_chapters_by_subject("math")
+    chapter_titles = [c.title for c in chapters]
+    assert "2.NBT" in chapter_titles
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -726,8 +688,6 @@ from app.clients.claude_client import ClaudeClient
 SUBJECTS = ["math", "science", "english"]
 GRADE_LEVELS = [0, 1, 2, 3]
 
-# Maps grade_level to lesson difficulty progression within a chapter.
-# Lessons for the same chapter are assigned easy→medium→hard by order_index.
 DIFFICULTY_BY_ORDER = {1: "easy", 2: "easy", 3: "medium", 4: "medium", 5: "hard"}
 
 
@@ -738,23 +698,16 @@ class ContentService:
         self.claude = claude
 
     async def sync_subject_grade(self, subject: str, grade_level: int) -> None:
-        """Fetch standards and generate lessons. Idempotent — skips existing standards/lessons."""
+        """Fetch standards, auto-create chapters from domains, generate lessons. Idempotent."""
         standards = await self.api.fetch_standards(subject, grade_level)
-        chapters = await self.dao.get_chapters_by_subject(subject)
-        if not chapters:
-            return
-
-        # Assign standards to chapters round-robin by order_index
-        chapter_lesson_counts: dict = {ch.id: await self.dao.count_lessons_in_chapter(ch.id) for ch in chapters}
 
         for std_data in standards:
-            existing = await self.dao.get_standard_by_code(std_data.code)
-            if existing:
-                # Check if lesson already generated
-                existing_lesson = await self.dao.get_lesson_by_standard(existing.id)
+            existing_standard = await self.dao.get_standard_by_code(std_data.code)
+            if existing_standard:
+                existing_lesson = await self.dao.get_lesson_by_standard(existing_standard.id)
                 if existing_lesson:
                     continue
-                standard = existing
+                standard = existing_standard
             else:
                 standard = await self.dao.create_standard(
                     code=std_data.code,
@@ -764,9 +717,12 @@ class ContentService:
                     description=std_data.description,
                 )
 
-            # Pick chapter with fewest lessons (distribute evenly)
-            chapter = min(chapters, key=lambda ch: chapter_lesson_counts.get(ch.id, 0))
-            order_index = (chapter_lesson_counts.get(chapter.id, 0) or 0) + 1
+            # Auto-create chapter from standard's domain if it doesn't exist
+            chapter = await self.dao.get_or_create_chapter(
+                subject=subject, domain=std_data.domain
+            )
+
+            order_index = (await self.dao.count_lessons_in_chapter(chapter.id)) + 1
             difficulty = DIFFICULTY_BY_ORDER.get(order_index, "hard")
 
             content = await self.claude.generate_lesson(
@@ -784,7 +740,6 @@ class ContentService:
                 order_index=order_index,
                 content=content,
             )
-            chapter_lesson_counts[chapter.id] = order_index
 
     async def sync_all(self) -> None:
         """Full sync: all subjects × all grade levels. Idempotent."""
@@ -805,12 +760,12 @@ Expected: all 2 tests `PASSED`
 
 ```bash
 git add app/services/content_service.py tests/services/test_content_service.py
-git commit -m "feat: add ContentService for idempotent standards sync and lesson generation"
+git commit -m "feat(p3-task4): add ContentService — auto-creates chapters from ASN domains"
 ```
 
 ---
 
-### Task 6: LessonService (lock states + sanitize) + tests
+### Task 5: LessonService (lock states + sanitize) + tests
 
 **Files:**
 - Create: `app/services/lesson_service.py`
@@ -840,11 +795,11 @@ def _chapter(order):
 
 
 def _lesson(chapter_id, order):
-    l = MagicMock(spec=Lesson)
-    l.id = uuid4()
-    l.chapter_id = chapter_id
-    l.order_index = order
-    return l
+    lesson = MagicMock(spec=Lesson)
+    lesson.id = uuid4()
+    lesson.chapter_id = chapter_id
+    lesson.order_index = order
+    return lesson
 
 
 def test_first_lesson_of_first_chapter_always_unlocked():
@@ -888,13 +843,13 @@ def test_chapter_boundary_locked_until_all_previous_complete():
     ch2 = _chapter(2)
     l1 = _lesson(ch1.id, 1)
     l2 = _lesson(ch1.id, 2)
-    l3 = _lesson(ch2.id, 1)  # first lesson of chapter 2
+    l3 = _lesson(ch2.id, 1)
     result = compute_lock_states(
         chapters=[ch1, ch2],
         lessons_by_chapter={ch1.id: [l1, l2], ch2.id: [l3]},
-        completed_lesson_ids={l1.id},  # l2 not complete
+        completed_lesson_ids={l1.id},
     )
-    assert result[l3.id] is True  # locked
+    assert result[l3.id] is True
 
 
 def test_chapter_boundary_unlocked_when_all_previous_complete():
@@ -906,7 +861,7 @@ def test_chapter_boundary_unlocked_when_all_previous_complete():
     result = compute_lock_states(
         chapters=[ch1, ch2],
         lessons_by_chapter={ch1.id: [l1, l2], ch2.id: [l3]},
-        completed_lesson_ids={l1.id, l2.id},  # both complete
+        completed_lesson_ids={l1.id, l2.id},
     )
     assert result[l3.id] is False
 
@@ -968,8 +923,7 @@ Expected: `ImportError: cannot import name 'compute_lock_states'`
 ```python
 import copy
 import random
-from uuid import UUID
-from app.db.models import Chapter, Lesson, LessonProgress, ChapterQuiz
+from app.db.models import Chapter, Lesson
 
 
 def compute_lock_states(
@@ -1020,7 +974,7 @@ def sanitize_lesson_content(content: dict) -> dict:
 
 
 def compute_effective_stars(raw_stars: int) -> int:
-    """Apply chapter quiz star multiplier: 3→6, 2→3, 1→1, 0→0."""
+    """Apply chapter quiz star multiplier: 3→×2=6, 2→×1.5=3, 1→×1=1, 0→0."""
     return {3: 6, 2: 3, 1: 1, 0: 0}.get(raw_stars, 0)
 ```
 
@@ -1030,22 +984,23 @@ def compute_effective_stars(raw_stars: int) -> int:
 uv run pytest tests/services/test_lesson_service.py -v
 ```
 
-Expected: all 8 tests `PASSED`
+Expected: all 7 tests `PASSED`
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add app/services/lesson_service.py tests/services/test_lesson_service.py
-git commit -m "feat: add LessonService (lock states, sanitize, effective stars)"
+git commit -m "feat(p3-task5): add LessonService (lock states, sanitize, effective stars)"
 ```
 
 ---
 
-### Task 7: Curriculum schemas + API + integration tests
+### Task 6: Curriculum schemas + API + integration tests
 
 **Files:**
 - Create: `app/schemas/curriculum.py`
 - Create: `app/api/curriculum.py`
+- Create: `app/daos/progress_dao.py` (stub — Phase 4 fills in)
 - Create: `tests/api/test_curriculum.py`
 - Modify: `app/main.py`
 
@@ -1071,7 +1026,7 @@ LESSON_CONTENT = {
 
 
 async def _seed_curriculum(db_session, subject="math"):
-    ch = Chapter(subject=subject, title="Test Chapter", order_index=50)
+    ch = Chapter(subject=subject, title="Test Domain", order_index=50)
     db_session.add(ch)
     await db_session.flush()
     st = Standard(code=f"NY-T-{id(db_session)}", subject=subject, grade_level=1,
@@ -1090,7 +1045,6 @@ async def _seed_curriculum(db_session, subject="math"):
 async def test_get_curriculum_returns_chapters(authed_client, db_session):
     client, parent = authed_client
     ch, lesson = await _seed_curriculum(db_session)
-
     learner = await LearnerDAO(db_session).create(
         parent_id=parent.id, name="Test", age=6, grade_level=1, avatar_emoji="🦋"
     )
@@ -1197,124 +1151,7 @@ class LessonDetailResponse(BaseModel):
     content: dict
 ```
 
-- [ ] **Step 4: Implement `app/api/curriculum.py`**
-
-```python
-from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
-from app.api.deps import get_current_parent
-from app.daos.lesson_dao import LessonDAO
-from app.daos.learner_dao import LearnerDAO
-from app.daos.progress_dao import ProgressDAO
-from app.services.learner_service import LearnerService
-from app.services.lesson_service import (
-    compute_lock_states, is_quiz_locked, sanitize_lesson_content, compute_effective_stars,
-)
-from app.schemas.curriculum import CurriculumResponse, ChapterResponse, LessonSummary, QuizState, LessonDetailResponse
-from app.db.models import Parent
-
-VALID_SUBJECTS = {"math", "science", "english"}
-
-router = APIRouter(tags=["curriculum"])
-
-
-def _deps(db: AsyncSession = Depends(get_db)):
-    return LessonDAO(db), LearnerDAO(db), ProgressDAO(db), LearnerService(LearnerDAO(db))
-
-
-@router.get("/subjects/{subject}/chapters", response_model=CurriculumResponse)
-async def get_curriculum(
-    subject: str,
-    learner_id: UUID = Query(...),
-    parent: Parent = Depends(get_current_parent),
-    db: AsyncSession = Depends(get_db),
-):
-    if subject not in VALID_SUBJECTS:
-        raise HTTPException(status_code=400, detail=f"Invalid subject. Must be one of {VALID_SUBJECTS}")
-
-    lesson_dao = LessonDAO(db)
-    learner_svc = LearnerService(LearnerDAO(db))
-    progress_dao = ProgressDAO(db)
-
-    learner = await learner_svc.get(parent, learner_id)
-    chapters = await lesson_dao.get_chapters_by_subject(subject)
-
-    all_progress = await progress_dao.get_all_progress_for_learner(learner.id)
-    completed_ids = {p.lesson_id for p in all_progress if p.completed}
-    progress_map = {p.lesson_id: p for p in all_progress}
-
-    lessons_by_chapter = {}
-    for ch in chapters:
-        lessons_by_chapter[ch.id] = await lesson_dao.get_lessons_by_chapter(ch.id)
-
-    lock_states = compute_lock_states(
-        chapters=chapters,
-        lessons_by_chapter=lessons_by_chapter,
-        completed_lesson_ids=completed_ids,
-    )
-
-    chapter_responses = []
-    for ch in chapters:
-        lessons = lessons_by_chapter.get(ch.id, [])
-        quiz_record = await progress_dao.get_chapter_quiz(learner.id, ch.id)
-        all_complete = all(l.id in completed_ids for l in lessons) if lessons else False
-        if not lessons or not all_complete:
-            quiz_state = QuizState(locked=True, generated=False)
-        elif quiz_record is None:
-            quiz_state = QuizState(locked=False, generated=False)
-        else:
-            quiz_state = QuizState(
-                id=quiz_record.id,
-                locked=False,
-                generated=True,
-                completed=quiz_record.completed,
-                stars_earned=quiz_record.stars_earned or 0,
-                effective_stars=compute_effective_stars(quiz_record.stars_earned or 0),
-            )
-
-        lesson_summaries = []
-        for l in sorted(lessons, key=lambda x: x.order_index):
-            prog = progress_map.get(l.id)
-            lesson_summaries.append(LessonSummary(
-                id=l.id,
-                title=l.title,
-                difficulty=l.difficulty,
-                order_index=l.order_index,
-                locked=lock_states.get(l.id, True),
-                completed=prog.completed if prog else False,
-                stars_earned=prog.stars_earned if prog else 0,
-            ))
-
-        chapter_responses.append(ChapterResponse(
-            id=ch.id, title=ch.title, order_index=ch.order_index,
-            quiz=quiz_state, lessons=lesson_summaries,
-        ))
-
-    return CurriculumResponse(subject=subject, chapters=chapter_responses)
-
-
-@router.get("/lessons/{lesson_id}", response_model=LessonDetailResponse)
-async def get_lesson(
-    lesson_id: UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    lesson = await LessonDAO(db).get_lesson_by_id(lesson_id)
-    if lesson is None:
-        raise HTTPException(status_code=404, detail="Lesson not found")
-    return LessonDetailResponse(
-        id=lesson.id,
-        title=lesson.title,
-        difficulty=lesson.difficulty,
-        stars_available=lesson.stars_available or 3,
-        content=sanitize_lesson_content(lesson.content),
-    )
-```
-
-Note: `curriculum.py` imports `ProgressDAO` which is created in Phase 4. This import will fail until Phase 4 is complete. Use a stub `ProgressDAO` when running these tests:
-
-Create `app/daos/progress_dao.py` as a stub for now (Phase 4 will fill it in):
+- [ ] **Step 4: Create `app/daos/progress_dao.py` stub**
 
 ```python
 from uuid import UUID
@@ -1334,7 +1171,127 @@ class ProgressDAO:
         return None
 ```
 
-- [ ] **Step 5: Register curriculum router in `app/main.py`**
+- [ ] **Step 5: Implement `app/api/curriculum.py`**
+
+```python
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.session import get_db
+from app.api.deps import get_current_parent
+from app.core.exceptions import LearnerNotFoundError, LearnerOwnershipError
+from app.daos.lesson_dao import LessonDAO
+from app.daos.learner_dao import LearnerDAO
+from app.daos.progress_dao import ProgressDAO
+from app.services.learner_service import LearnerService
+from app.services.lesson_service import (
+    compute_lock_states, sanitize_lesson_content, compute_effective_stars,
+)
+from app.schemas.curriculum import (
+    CurriculumResponse, ChapterResponse, LessonSummary, QuizState, LessonDetailResponse,
+)
+from app.db.models import Parent
+
+VALID_SUBJECTS = {"math", "science", "english"}
+
+router = APIRouter(tags=["curriculum"])
+
+
+@router.get("/subjects/{subject}/chapters", response_model=CurriculumResponse)
+async def get_curriculum(
+    subject: str,
+    learner_id: UUID = Query(...),
+    parent: Parent = Depends(get_current_parent),
+    db: AsyncSession = Depends(get_db),
+):
+    if subject not in VALID_SUBJECTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid subject. Must be one of {VALID_SUBJECTS}",
+        )
+
+    lesson_dao = LessonDAO(db)
+    progress_dao = ProgressDAO(db)
+
+    try:
+        learner = await LearnerService(LearnerDAO(db)).get(parent, learner_id)
+    except LearnerNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Learner not found")
+    except LearnerOwnershipError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Learner not owned by parent")
+
+    chapters = await lesson_dao.get_chapters_by_subject(subject)
+    all_progress = await progress_dao.get_all_progress_for_learner(learner.id)
+    completed_ids = {p.lesson_id for p in all_progress if p.completed}
+    progress_map = {p.lesson_id: p for p in all_progress}
+
+    lessons_by_chapter = {
+        ch.id: await lesson_dao.get_lessons_by_chapter(ch.id) for ch in chapters
+    }
+    lock_states = compute_lock_states(
+        chapters=chapters,
+        lessons_by_chapter=lessons_by_chapter,
+        completed_lesson_ids=completed_ids,
+    )
+
+    chapter_responses = []
+    for ch in chapters:
+        lessons = lessons_by_chapter.get(ch.id, [])
+        quiz_record = await progress_dao.get_chapter_quiz(learner.id, ch.id)
+        all_complete = all(l.id in completed_ids for l in lessons) if lessons else False
+
+        if not lessons or not all_complete:
+            quiz_state = QuizState(locked=True, generated=False)
+        elif quiz_record is None:
+            quiz_state = QuizState(locked=False, generated=False)
+        else:
+            quiz_state = QuizState(
+                id=quiz_record.id,
+                locked=False,
+                generated=True,
+                completed=quiz_record.completed,
+                stars_earned=quiz_record.stars_earned or 0,
+                effective_stars=compute_effective_stars(quiz_record.stars_earned or 0),
+            )
+
+        lesson_summaries = [
+            LessonSummary(
+                id=l.id,
+                title=l.title,
+                difficulty=l.difficulty,
+                order_index=l.order_index,
+                locked=lock_states.get(l.id, True),
+                completed=progress_map[l.id].completed if l.id in progress_map else False,
+                stars_earned=progress_map[l.id].stars_earned if l.id in progress_map else 0,
+            )
+            for l in sorted(lessons, key=lambda x: x.order_index)
+        ]
+        chapter_responses.append(ChapterResponse(
+            id=ch.id, title=ch.title, order_index=ch.order_index,
+            quiz=quiz_state, lessons=lesson_summaries,
+        ))
+
+    return CurriculumResponse(subject=subject, chapters=chapter_responses)
+
+
+@router.get("/lessons/{lesson_id}", response_model=LessonDetailResponse)
+async def get_lesson(
+    lesson_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    lesson = await LessonDAO(db).get_lesson_by_id(lesson_id)
+    if lesson is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found")
+    return LessonDetailResponse(
+        id=lesson.id,
+        title=lesson.title,
+        difficulty=lesson.difficulty,
+        stars_available=lesson.stars_available or 3,
+        content=sanitize_lesson_content(lesson.content),
+    )
+```
+
+- [ ] **Step 6: Register curriculum router in `app/main.py`**
 
 ```python
 from fastapi import FastAPI
@@ -1349,7 +1306,7 @@ app.include_router(parent.router)
 app.include_router(curriculum.router)
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [ ] **Step 7: Run tests to verify they pass**
 
 ```bash
 uv run pytest tests/api/test_curriculum.py -v
@@ -1357,24 +1314,24 @@ uv run pytest tests/api/test_curriculum.py -v
 
 Expected: all 5 tests `PASSED`
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add app/schemas/curriculum.py app/api/curriculum.py app/daos/progress_dao.py \
   app/main.py tests/api/test_curriculum.py
-git commit -m "feat: add curriculum API with lock states and sanitized lesson JSONB"
+git commit -m "feat(p3-task6): add curriculum API with dynamic chapters, lock states, sanitized JSONB"
 ```
 
 ---
 
-### Task 8: Startup lifespan hook for background sync
+### Task 7: Startup lifespan hook for background sync
 
 **Files:**
 - Modify: `app/main.py`
 
 - [ ] **Step 1: Add lifespan hook to `app/main.py`**
 
-The sync fires in a background asyncio task only if `standards` table is empty. It is non-blocking — the API starts serving immediately.
+The sync fires in a background asyncio task only if `standards` table is empty. Non-blocking — the API starts serving immediately.
 
 ```python
 import asyncio
@@ -1390,33 +1347,26 @@ async def lifespan(application: FastAPI):
 
 
 async def _maybe_sync_standards() -> None:
-    from sqlalchemy.ext.asyncio import AsyncSession
     from app.db.session import AsyncSessionLocal
     from app.daos.lesson_dao import LessonDAO
-    from app.services.content_service import ContentService
+    from app.services.content_service import ContentService, SUBJECTS, GRADE_LEVELS
     from app.clients.standards_api import StandardsAPIClient
     from app.clients.claude_client import get_claude_client
 
     async with AsyncSessionLocal() as session:
-        dao = LessonDAO(session)
-        count = await dao.count_standards()
+        count = await LessonDAO(session).count_standards()
         if count > 0:
             return
 
-    svc = ContentService(
-        lesson_dao=None,  # refreshed per-sync below
-        standards_api=StandardsAPIClient(),
-        claude=get_claude_client(),
-    )
-    # Each subject+grade gets its own session to allow partial completion on restart
-    from app.db.session import AsyncSessionLocal
-    from app.daos.lesson_dao import LessonDAO
-    from app.services.content_service import SUBJECTS, GRADE_LEVELS
     for subject in SUBJECTS:
         for grade_level in GRADE_LEVELS:
             async with AsyncSessionLocal() as session:
                 await session.begin()
-                svc.dao = LessonDAO(session)
+                svc = ContentService(
+                    lesson_dao=LessonDAO(session),
+                    standards_api=StandardsAPIClient(),
+                    claude=get_claude_client(),
+                )
                 await svc.sync_subject_grade(subject, grade_level)
                 await session.commit()
 
@@ -1436,13 +1386,13 @@ app.include_router(curriculum.router)
 uv run pytest -v
 ```
 
-Expected: all tests pass. (The lifespan hook only fires for real app startup, not in tests.)
+Expected: all tests pass.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add app/main.py
-git commit -m "feat: add lifespan hook for non-blocking standards sync on startup"
+git commit -m "feat(p3-task7): add lifespan hook for non-blocking standards sync on startup"
 ```
 
 ---
@@ -1451,10 +1401,10 @@ git commit -m "feat: add lifespan hook for non-blocking standards sync on startu
 
 At end of Phase 3 you have:
 
-- 15 chapters seeded (5 per subject) via Alembic migration
-- `StandardsAPIClient` fetches NY State standards from ASN API
+- `StandardsAPIClient` fetches NY State standards from ASN API; each standard carries a `domain` field used for chapter grouping
+- `LessonDAO.get_or_create_chapter` auto-creates chapters from ASN standard domains — no pre-seeded data
 - `ClaudeClient` generates 15-exercise lesson JSONB with prompt caching
-- `ContentService.sync_all()` is idempotent (skips existing standards and lessons)
+- `ContentService.sync_all()` is idempotent (skips existing standards and lessons); chapters emerge naturally from the data
 - App startup: background task checks `standards` table and triggers sync if empty
 - `GET /subjects/{subject}/chapters?learner_id={id}` — full curriculum with lock states + quiz state
 - `GET /lessons/{lesson_id}` — sanitized JSONB (no correct answers, matching items shuffled)
