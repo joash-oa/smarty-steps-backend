@@ -31,10 +31,22 @@ jobs:
         env:
           INSTANCE_ID: ${{ secrets.EC2_STAGING_INSTANCE_ID }}
         run: |
+          COMPOSE_B64=$(base64 -w 0 docker-compose.prod.yml)
+
+          PARAMS=$(jq -n --arg compose "$COMPOSE_B64" \
+            '{"commands": [
+              "TOKEN=$(aws ssm get-parameter --name /smarty-steps/ghcr-pat --with-decryption --query Parameter.Value --output text)",
+              "echo \"$TOKEN\" | docker login ghcr.io -u joash-oa --password-stdin",
+              "mkdir -p /opt/smarty-steps",
+              ("echo " + $compose + " | base64 -d > /opt/smarty-steps/docker-compose.prod.yml"),
+              "IMAGE_TAG=staging docker compose -f /opt/smarty-steps/docker-compose.prod.yml pull",
+              "IMAGE_TAG=staging docker compose -f /opt/smarty-steps/docker-compose.prod.yml up -d"
+            ]}')
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters '{"commands":["TOKEN=$(aws ssm get-parameter --name /smarty-steps/ghcr-pat --with-decryption --query Parameter.Value --output text)","echo \"$TOKEN\" | docker login ghcr.io -u joash-oa --password-stdin","cd /opt/smarty-steps","IMAGE_TAG=staging docker compose -f docker-compose.prod.yml pull","IMAGE_TAG=staging docker compose -f docker-compose.prod.yml up -d"]}' \
+            --parameters "$PARAMS" \
             --query "Command.CommandId" \
             --output text)
 

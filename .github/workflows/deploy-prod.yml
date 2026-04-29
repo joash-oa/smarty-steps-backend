@@ -12,6 +12,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -24,13 +26,16 @@ jobs:
           INSTANCE_ID: ${{ secrets.EC2_PROD_INSTANCE_ID }}
           IMAGE_TAG: ${{ github.event.inputs.image_tag }}
         run: |
-          PARAMS=$(jq -n --arg tag "$IMAGE_TAG" \
+          COMPOSE_B64=$(base64 -w 0 docker-compose.prod.yml)
+
+          PARAMS=$(jq -n --arg compose "$COMPOSE_B64" --arg tag "$IMAGE_TAG" \
             '{"commands": [
               "TOKEN=$(aws ssm get-parameter --name /smarty-steps/ghcr-pat --with-decryption --query Parameter.Value --output text)",
               "echo \"$TOKEN\" | docker login ghcr.io -u joash-oa --password-stdin",
-              "cd /opt/smarty-steps",
-              ("IMAGE_TAG=" + $tag + " docker compose -f docker-compose.prod.yml pull"),
-              ("IMAGE_TAG=" + $tag + " docker compose -f docker-compose.prod.yml up -d")
+              "mkdir -p /opt/smarty-steps",
+              ("echo " + $compose + " | base64 -d > /opt/smarty-steps/docker-compose.prod.yml"),
+              ("IMAGE_TAG=" + $tag + " docker compose -f /opt/smarty-steps/docker-compose.prod.yml pull"),
+              ("IMAGE_TAG=" + $tag + " docker compose -f /opt/smarty-steps/docker-compose.prod.yml up -d")
             ]}')
 
           COMMAND_ID=$(aws ssm send-command \
@@ -42,12 +47,18 @@ jobs:
 
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" || true
 
           STATUS=$(aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
             --instance-id "$INSTANCE_ID" \
             --query "Status" \
+            --output text)
+
+          STDOUT=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --query "StandardOutputContent" \
             --output text)
 
           STDERR=$(aws ssm get-command-invocation \
@@ -56,6 +67,7 @@ jobs:
             --query "StandardErrorContent" \
             --output text)
 
+          [ -n "$STDOUT" ] && echo "STDOUT: $STDOUT"
           [ -n "$STDERR" ] && echo "STDERR: $STDERR"
           echo "Deployment status: $STATUS"
           [ "$STATUS" = "Success" ] || exit 1
