@@ -9,6 +9,7 @@ Backend for Smarty Steps, a learning app for 5–8 year olds covering Math, Scie
 - Always invoke the `superpowers:test-driven-development` skill before writing any implementation code.
 - Always separate code into three layers: **API (routers)** → **Service (business logic)** → **DAOs**. No business logic in routers. No DB calls in routers. Services never import FastAPI. DAOs never contain business logic.
 - Each task from an implementation plan gets its own branch (e.g. `feat/task-5-conftest`). Never bundle multiple tasks onto one branch.
+- Implementation plans must follow the design spec exactly. If a plan step contradicts the spec, the spec wins — stop and resolve the conflict before writing any code.
 - Each phase gets its own stacked PR. Tasks within a phase are stacked on each other; the phase PR is stacked on the previous phase's PR.
 - After every task is completed, run a `superpowers:code-reviewer` review before moving to the next task.
 - Notify the user when a phase is fully complete before starting the next phase.
