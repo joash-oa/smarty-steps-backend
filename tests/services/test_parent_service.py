@@ -2,10 +2,10 @@ from unittest.mock import MagicMock
 
 import bcrypt
 import pytest
-from fastapi import HTTPException
 from jose import jwt
 
 from app.core.config import settings
+from app.core.exceptions import InvalidPinError
 from app.db.models import Parent
 from app.services.parent_service import ParentService
 
@@ -24,9 +24,8 @@ def test_correct_pin_returns_jwt():
     assert claims["scope"] == "parent_dashboard"
 
 
-def test_wrong_pin_raises_401():
+def test_wrong_pin_raises_invalid_pin_error():
     parent = _parent_with_pin("1234")
-    svc = ParentService()
-    with pytest.raises(HTTPException) as exc:
-        svc.verify_pin_and_issue_token(parent, "9999")
-    assert exc.value.status_code == 401
+    service = ParentService()
+    with pytest.raises(InvalidPinError):
+        service.verify_pin_and_issue_token(parent, "9999")

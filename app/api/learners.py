@@ -1,9 +1,10 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_parent
+from app.core.exceptions import LearnerNotFoundError, LearnerOwnershipError
 from app.daos.learner_dao import LearnerDAO
 from app.db.models import Parent
 from app.db.session import get_db
@@ -55,7 +56,14 @@ async def get_learner(
     parent: Parent = Depends(get_current_parent),
     svc: LearnerService = Depends(_svc),
 ):
-    learner = await svc.get(parent, learner_id)
+    try:
+        learner = await svc.get(parent, learner_id)
+    except LearnerNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Learner not found")
+    except LearnerOwnershipError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Learner not owned by parent"
+        )
     return LearnerResponse.model_validate(learner)
 
 
@@ -66,11 +74,18 @@ async def update_learner(
     parent: Parent = Depends(get_current_parent),
     svc: LearnerService = Depends(_svc),
 ):
-    learner = await svc.update(
-        parent=parent,
-        learner_id=learner_id,
-        name=body.name,
-        avatar_emoji=body.avatar_emoji,
-        grade_level=body.grade_level,
-    )
+    try:
+        learner = await svc.update(
+            parent=parent,
+            learner_id=learner_id,
+            name=body.name,
+            avatar_emoji=body.avatar_emoji,
+            grade_level=body.grade_level,
+        )
+    except LearnerNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Learner not found")
+    except LearnerOwnershipError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Learner not owned by parent"
+        )
     return LearnerResponse.model_validate(learner)

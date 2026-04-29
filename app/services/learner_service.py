@@ -1,8 +1,7 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import HTTPException
-
+from app.core.exceptions import LearnerNotFoundError, LearnerOwnershipError
 from app.daos.learner_dao import LearnerDAO
 from app.db.models import Learner, Parent
 
@@ -33,9 +32,9 @@ class LearnerService:
     async def get(self, parent: Parent, learner_id: UUID) -> Learner:
         learner = await self.dao.get_by_id(learner_id)
         if learner is None:
-            raise HTTPException(status_code=404, detail="Learner not found")
+            raise LearnerNotFoundError
         if learner.parent_id != parent.id:
-            raise HTTPException(status_code=403, detail="Learner not owned by parent")
+            raise LearnerOwnershipError
         return learner
 
     async def update(

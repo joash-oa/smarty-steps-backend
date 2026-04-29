@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
+from app.core.exceptions import LearnerNotFoundError, LearnerOwnershipError
 from app.db.models import Learner, Parent
 from app.services.learner_service import LearnerService
 
@@ -26,9 +26,8 @@ async def test_get_raises_404_when_not_found():
     dao = MagicMock()
     dao.get_by_id = AsyncMock(return_value=None)
     svc = LearnerService(dao)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(LearnerNotFoundError):
         await svc.get(_parent(), uuid4())
-    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -38,9 +37,8 @@ async def test_get_raises_403_when_wrong_parent():
     dao = MagicMock()
     dao.get_by_id = AsyncMock(return_value=learner)
     svc = LearnerService(dao)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(LearnerOwnershipError):
         await svc.get(parent, learner.id)
-    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio
