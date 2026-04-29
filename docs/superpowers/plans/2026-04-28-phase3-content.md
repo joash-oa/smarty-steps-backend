@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Sync NY State standards from the ASN API, auto-create chapters from standard domains, generate lesson content via Claude (15 exercises per lesson, mixed types), and serve the curriculum with per-learner lock states and sanitized lesson JSONB.
+**Goal:** Sync NY State standards from the Common Standards Project API, auto-create chapters from standard domains, generate lesson content via Claude (15 exercises per lesson, mixed types), and serve the curriculum with per-learner lock states and sanitized lesson JSONB.
 
-**Architecture:** `ContentService` (background task, non-blocking) owns standards sync + chapter creation + lesson generation. Chapters are created dynamically from ASN standard domains — not pre-seeded. `LessonService` owns lock-state computation (pure function, no DB) and JSONB sanitization. `LessonDAO` is the sole DB interface for curriculum data. `StandardsAPIClient` and `ClaudeClient` are injectable clients; tests mock them.
+**Architecture:** `ContentService` (background task, non-blocking) owns standards sync + chapter creation + lesson generation. Chapters are created dynamically from Common Standards Project standard domains — not pre-seeded. `LessonService` owns lock-state computation (pure function, no DB) and JSONB sanitization. `LessonDAO` is the sole DB interface for curriculum data. `StandardsAPIClient` and `ClaudeClient` are injectable clients; tests mock them.
 
 **Tech Stack:** Python 3.12, FastAPI lifespan hook, asyncio.create_task, httpx, anthropic SDK (claude-opus-4-7 with prompt caching), SQLAlchemy async, pytest-asyncio, unittest.mock
 
@@ -51,142 +51,49 @@ tests/
 
 ---
 
-### Task 1: Settings update + StandardsAPIClient
+### Task 1: Settings update + StandardsAPIClient ✅ DONE
 
 **Files:**
 - Modify: `app/core/config.py`
 - Create: `app/clients/standards_api.py`
 - Modify: `.env.example`
 
-- [ ] **Step 1: Add `standards_api_base_url` to `app/core/config.py`**
+> **Note:** Implemented using Common Standards Project API (not the original ASN API — that returned 403).
+> Standard sets are fetched by hardcoded ID per (subject, grade_level). Auth via `Api-Key` header.
+> Domain comes from `depth=0` entries in the response dict, not from notation prefix parsing.
+
+- [x] **Step 1: Add `standards_api_base_url` and `standards_api_key` to `app/core/config.py`**
 
 ```python
-from pydantic_settings import BaseSettings
-
-
-class Settings(BaseSettings):
-    database_url: str
-    cognito_user_pool_id: str
-    cognito_client_id: str
-    cognito_region: str = "us-east-1"
-    anthropic_api_key: str
-    parent_jwt_secret: str
-    parent_jwt_expire_minutes: int = 15
-    standards_api_base_url: str = "http://asn.desire2learn.com/resources.json"
-
-    model_config = {"env_file": ".env", "extra": "ignore"}
-
-
-settings = Settings()
+standards_api_base_url: str = "https://commonstandardsproject.com/api/v1/standard_sets"
+standards_api_key: str
 ```
 
-- [ ] **Step 2: Add `STANDARDS_API_BASE_URL` to `.env.example`**
+- [x] **Step 2: Add `STANDARDS_API_BASE_URL` and `STANDARDS_API_KEY` to `.env.example`**
 
 ```env
-STANDARDS_API_BASE_URL=http://asn.desire2learn.com/resources.json
+STANDARDS_API_BASE_URL=https://commonstandardsproject.com/api/v1/standard_sets
+STANDARDS_API_KEY=your-key-here
 ```
 
-- [ ] **Step 3: Implement `app/clients/standards_api.py`**
+- [x] **Step 3: Implement `app/clients/standards_api.py`**
 
-The ASN API returns standards in JSON-LD format. Each standard belongs to a domain (strand)
-identified by the prefix of its `statementNotation` (e.g. "K.CC" → "Counting & Cardinality").
-The `domain` field drives chapter auto-creation in `ContentService`.
+Uses hardcoded standard set IDs per (subject, grade_level). Fetches by ID at `/{standard_set_id}`.
+Parses `data["data"]["standards"]` dict — `depth=0` entries are Domains (set `current_domain`),
+`depth=2` entries are the actual standards (appended with `domain=current_domain`).
 
-```python
-from dataclasses import dataclass
-from typing import Optional
-import httpx
-from app.core.config import settings
-
-SUBJECT_MAP = {
-    "math": "Mathematics",
-    "science": "Science",
-    "english": "English Language Arts",
-}
-
-GRADE_MAP = {0: "K", 1: "1", 2: "2", 3: "3"}
-
-
-@dataclass
-class StandardData:
-    code: str
-    subject: str          # "math" | "science" | "english"
-    grade_level: int      # 0-3
-    title: str
-    description: Optional[str]
-    domain: str           # chapter grouping, e.g. "Counting & Cardinality"
-
-
-def _extract_domain(item: dict, subject: str) -> str:
-    """Derive a human-readable domain name for chapter grouping.
-
-    ASN standards have a 'subject' field at the broader strand level, or we fall back
-    to the notation prefix (e.g. 'K.CC' from 'K.CC.1') to group related standards.
-    """
-    notation = item.get("statementNotation", "")
-    if notation and "." in notation:
-        # Take up to the second segment: "K.CC.1" → "K.CC"
-        parts = notation.split(".")
-        prefix = ".".join(parts[:2])
-        return prefix
-    # Fall back to broad subject label
-    return SUBJECT_MAP.get(subject, subject.title())
-
-
-class StandardsAPIClient:
-    def __init__(self, base_url: str = None):
-        self._base_url = base_url or settings.standards_api_base_url
-
-    async def fetch_standards(self, subject: str, grade_level: int) -> list[StandardData]:
-        """Fetch NY State standards for one subject+grade from ASN API."""
-        params = {
-            "jurisdiction": "NYSED",
-            "gradeBegin": GRADE_MAP[grade_level],
-            "gradeEnd": GRADE_MAP[grade_level],
-            "subjectArea": SUBJECT_MAP[subject],
-            "limit": 200,
-        }
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(self._base_url, params=params)
-            response.raise_for_status()
-            data = response.json()
-
-        results = []
-        for item in data.get("resources", []):
-            description = item.get("description", "")
-            identifier = item.get("identifier", "")
-            code = identifier or item.get("uri", "").split("/")[-1]
-            title = item.get("statementNotation", identifier) or description[:80]
-            if not code or not description:
-                continue
-            results.append(StandardData(
-                code=code,
-                subject=subject,
-                grade_level=grade_level,
-                title=title,
-                description=description,
-                domain=_extract_domain(item, subject),
-            ))
-        return results
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add app/core/config.py app/clients/standards_api.py .env.example
-git commit -m "feat(p3-task1): add StandardsAPIClient with domain extraction and standards_api_base_url setting"
-```
+- [x] **Step 4: Commit**
 
 ---
 
-### Task 2: ClaudeClient for lesson generation
+### Task 2: ClaudeClient for lesson generation ✅ DONE
 
 **Files:**
 - Create: `app/clients/claude_client.py`
 
 No unit tests — the client is injectable so ContentService tests mock it.
 
-- [ ] **Step 1: Implement `app/clients/claude_client.py`**
+- [x] **Step 1: Implement `app/clients/claude_client.py`**
 
 Uses `claude-opus-4-7` with prompt caching on the system prompt.
 
@@ -299,7 +206,7 @@ def get_claude_client() -> ClaudeClient:
     return _claude_client
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add app/clients/claude_client.py
@@ -308,13 +215,13 @@ git commit -m "feat(p3-task2): add ClaudeClient for lesson JSONB generation (cla
 
 ---
 
-### Task 3: LessonDAO + tests
+### Task 3: LessonDAO + tests ✅ DONE
 
 **Files:**
 - Create: `app/daos/lesson_dao.py`
 - Create: `tests/daos/test_lesson_dao.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/daos/test_lesson_dao.py`:
 
@@ -420,7 +327,7 @@ async def test_count_lessons_in_chapter(db_session):
     assert count == 2
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 uv run pytest tests/daos/test_lesson_dao.py -v
@@ -428,7 +335,7 @@ uv run pytest tests/daos/test_lesson_dao.py -v
 
 Expected: `ImportError: cannot import name 'LessonDAO'`
 
-- [ ] **Step 3: Implement `app/daos/lesson_dao.py`**
+- [x] **Step 3: Implement `app/daos/lesson_dao.py`**
 
 ```python
 from uuid import UUID
@@ -554,7 +461,7 @@ class LessonDAO:
         return result.scalar_one()
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 uv run pytest tests/daos/test_lesson_dao.py -v
@@ -562,7 +469,7 @@ uv run pytest tests/daos/test_lesson_dao.py -v
 
 Expected: all 7 tests `PASSED`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/daos/lesson_dao.py tests/daos/test_lesson_dao.py

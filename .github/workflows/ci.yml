@@ -33,4 +33,5 @@ jobs:
           COGNITO_REGION: us-east-1
           ANTHROPIC_API_KEY: dummy
           PARENT_JWT_SECRET: test-secret
+          STANDARDS_API_KEY: dummy
         run: uv run pytest -v
