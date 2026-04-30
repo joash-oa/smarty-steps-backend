@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -16,6 +17,8 @@ from app.services.grading import (
     compute_xp,
     grade_exercise,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ProgressService:
@@ -132,15 +135,21 @@ class ProgressService:
         from app.db.session import AsyncSessionLocal
         from app.services.quiz_service import QuizService
 
-        async with AsyncSessionLocal() as session:
-            svc = QuizService(
-                lesson_dao=LessonDAO(session),
-                progress_dao=ProgressDAO(session),
-                learner_dao=LearnerDAO(session),
-                claude=get_claude_client(),
+        try:
+            async with AsyncSessionLocal() as session:
+                svc = QuizService(
+                    lesson_dao=LessonDAO(session),
+                    progress_dao=ProgressDAO(session),
+                    claude=get_claude_client(),
+                )
+                await svc.generate_quiz(learner_id, chapter_id)
+                await session.commit()
+        except Exception:
+            logger.exception(
+                "Background quiz generation failed for learner=%s chapter=%s",
+                learner_id,
+                chapter_id,
             )
-            await svc.generate_quiz(learner_id, chapter_id)
-            await session.commit()
 
     async def get_summary(self, parent, learner_id: UUID, learner_svc) -> dict:
         learner = await learner_svc.get(parent, learner_id)

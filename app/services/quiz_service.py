@@ -1,9 +1,10 @@
-import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from app.clients.claude_client import ClaudeClient
+from app.core.constants import QUIZ_HARD_STAR_THRESHOLD, QUIZ_MEDIUM_STAR_THRESHOLD
 from app.core.exceptions import ExerciseNotFoundError, IncompleteAnswersError, QuizNotFoundError
 from app.daos.learner_dao import LearnerDAO
 from app.daos.lesson_dao import LessonDAO
@@ -18,19 +19,7 @@ from app.services.grading import (
 )
 from app.services.lesson_service import sanitize_lesson_content
 
-QUIZ_SYSTEM_PROMPT = """You are an educational content creator for Smarty Steps,
-a learning app for children ages 5-8.
-
-Generate a personalized chapter quiz as valid JSON with this schema:
-{
-  "exercises": [
-    // 7-10 exercises, mix of multiple_choice, fill_blank, matching types
-    // Same format as lesson exercises, including correct answers
-  ]
-}
-
-Set exercise difficulty based on the provided learner performance data.
-Return ONLY the JSON object, no markdown fences."""
+logger = logging.getLogger(__name__)
 
 
 class QuizService:
@@ -59,36 +48,38 @@ class QuizService:
             prog_map[lesson.id].stars_earned if lesson.id in prog_map else 0 for lesson in lessons
         ]
         avg_stars = sum(star_values) / len(star_values) if star_values else 0
-        difficulty = "hard" if avg_stars >= 2.5 else "medium" if avg_stars >= 1.5 else "easy"
+        if avg_stars >= QUIZ_HARD_STAR_THRESHOLD:
+            difficulty = "hard"
+        elif avg_stars >= QUIZ_MEDIUM_STAR_THRESHOLD:
+            difficulty = "medium"
+        else:
+            difficulty = "easy"
 
         lesson_summaries = "\n".join(
             f"- {lesson.title} (stars: {prog_map[lesson.id].stars_earned if lesson.id in prog_map else 0}/3)"  # noqa: E501
             for lesson in lessons
         )
-        user_message = (
-            f"Generate a chapter quiz (difficulty: {difficulty}).\n"
-            f"Learner performance:\n{lesson_summaries}\n"
-            f"Focus on weaker areas. Return only the JSON."
-        )
 
-        import anthropic
+        try:
+            content = await self.claude.generate_quiz(
+                difficulty=difficulty,
+                lesson_summaries=lesson_summaries,
+            )
+        except Exception:
+            logger.exception(
+                "Quiz generation failed for learner=%s chapter=%s", learner_id, chapter_id
+            )
+            return
 
-        from app.core.config import settings
+        if not isinstance(content.get("exercises"), list) or not content["exercises"]:
+            logger.error(
+                "Quiz generation returned invalid structure for learner=%s chapter=%s: %s",
+                learner_id,
+                chapter_id,
+                content,
+            )
+            return
 
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        response = await client.messages.create(
-            model="claude-opus-4-7",
-            max_tokens=3000,
-            system=[
-                {
-                    "type": "text",
-                    "text": QUIZ_SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_message}],
-        )
-        content = json.loads(response.content[0].text.strip())
         await self.progress_dao.create_chapter_quiz(
             learner_id=learner_id,
             chapter_id=chapter_id,

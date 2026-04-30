@@ -56,6 +56,41 @@ def _learner():
 
 
 @pytest.mark.asyncio
+async def test_generate_quiz_uses_claude_client():
+    """generate_quiz must delegate to self.claude, not instantiate Anthropic SDK directly."""
+    chapter_id = uuid4()
+    learner_id = uuid4()
+
+    lesson = MagicMock()
+    lesson.id = uuid4()
+    lesson.title = "Counting"
+
+    lesson_dao = MagicMock()
+    lesson_dao.get_lessons_by_chapter = AsyncMock(return_value=[lesson])
+
+    progress_dao = MagicMock()
+    progress_dao.get_chapter_quiz = AsyncMock(return_value=None)
+    progress_dao.get_all_progress_for_learner = AsyncMock(return_value=[])
+    progress_dao.create_chapter_quiz = AsyncMock()
+
+    claude = MagicMock()
+    claude.generate_quiz = AsyncMock(
+        return_value={"exercises": [{"id": "q_1", "type": "multiple_choice"}]}
+    )
+
+    svc = QuizService(
+        lesson_dao=lesson_dao,
+        progress_dao=progress_dao,
+        learner_dao=MagicMock(),
+        claude=claude,
+    )
+    await svc.generate_quiz(learner_id, chapter_id)
+
+    claude.generate_quiz.assert_awaited_once()
+    progress_dao.create_chapter_quiz.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_get_quiz_raises_when_not_found():
     progress_dao = MagicMock()
     progress_dao.get_quiz_by_id = AsyncMock(return_value=None)
