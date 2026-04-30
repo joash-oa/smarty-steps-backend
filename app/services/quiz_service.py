@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -18,19 +19,7 @@ from app.services.grading import (
 )
 from app.services.lesson_service import sanitize_lesson_content
 
-QUIZ_SYSTEM_PROMPT = """You are an educational content creator for Smarty Steps,
-a learning app for children ages 5-8.
-
-Generate a personalized chapter quiz as valid JSON with this schema:
-{
-  "exercises": [
-    // 7-10 exercises, mix of multiple_choice, fill_blank, matching types
-    // Same format as lesson exercises, including correct answers
-  ]
-}
-
-Set exercise difficulty based on the provided learner performance data.
-Return ONLY the JSON object, no markdown fences."""
+logger = logging.getLogger(__name__)
 
 
 class QuizService:
@@ -70,13 +59,27 @@ class QuizService:
             f"- {lesson.title} (stars: {prog_map[lesson.id].stars_earned if lesson.id in prog_map else 0}/3)"  # noqa: E501
             for lesson in lessons
         )
-        user_message = (
-            f"Generate a chapter quiz (difficulty: {difficulty}).\n"
-            f"Learner performance:\n{lesson_summaries}\n"
-            f"Focus on weaker areas. Return only the JSON."
-        )
 
-        content = await self.claude.generate_quiz_content(QUIZ_SYSTEM_PROMPT, user_message)
+        try:
+            content = await self.claude.generate_quiz(
+                difficulty=difficulty,
+                lesson_summaries=lesson_summaries,
+            )
+        except Exception:
+            logger.exception(
+                "Quiz generation failed for learner=%s chapter=%s", learner_id, chapter_id
+            )
+            return
+
+        if not isinstance(content.get("exercises"), list) or not content["exercises"]:
+            logger.error(
+                "Quiz generation returned invalid structure for learner=%s chapter=%s: %s",
+                learner_id,
+                chapter_id,
+                content,
+            )
+            return
+
         await self.progress_dao.create_chapter_quiz(
             learner_id=learner_id,
             chapter_id=chapter_id,
