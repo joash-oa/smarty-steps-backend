@@ -1,10 +1,10 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException
-
+from app.core.exceptions import ExerciseNotFoundError, IncompleteAnswersError, LessonNotFoundError
 from app.daos.learner_dao import LearnerDAO
 from app.daos.lesson_dao import LessonDAO
 from app.daos.progress_dao import ProgressDAO
@@ -18,6 +18,8 @@ from app.services.grading import (
     grade_exercise,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ProgressService:
     def __init__(self, lesson_dao: LessonDAO, progress_dao: ProgressDAO, learner_dao: LearnerDAO):
@@ -28,11 +30,11 @@ class ProgressService:
     async def check_lesson_answer(self, lesson_id: UUID, exercise_id: str, answer: dict) -> dict:
         lesson = await self.lesson_dao.get_lesson_by_id(lesson_id)
         if lesson is None:
-            raise HTTPException(status_code=404, detail="Lesson not found")
+            raise LessonNotFoundError(f"Lesson {lesson_id} not found")
         exercises = lesson.content.get("exercises", [])
         exercise = next((e for e in exercises if e["id"] == exercise_id), None)
         if exercise is None:
-            raise HTTPException(status_code=404, detail="Exercise not found")
+            raise ExerciseNotFoundError(f"Exercise {exercise_id} not found")
         correct = grade_exercise(exercise, answer)
         explanation = exercise.get("explanation") if correct else None
         return {"correct": correct, "explanation": explanation}
@@ -48,17 +50,14 @@ class ProgressService:
     ) -> dict:
         lesson = await self.lesson_dao.get_lesson_by_id(lesson_id)
         if lesson is None:
-            raise HTTPException(status_code=404, detail="Lesson not found")
+            raise LessonNotFoundError(f"Lesson {lesson_id} not found")
 
         learner = await learner_svc.get(parent, learner_id)
         exercises = lesson.content.get("exercises", [])
 
         missing = [e["id"] for e in exercises if e["id"] not in answers]
         if missing:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Missing answers for exercises: {missing}",
-            )
+            raise IncompleteAnswersError(missing)
 
         correct_count = sum(grade_exercise(e, answers[e["id"]]) for e in exercises)
         total = len(exercises)
@@ -136,14 +135,21 @@ class ProgressService:
         from app.db.session import AsyncSessionLocal
         from app.services.quiz_service import QuizService
 
-        async with AsyncSessionLocal() as session:
-            svc = QuizService(
-                lesson_dao=LessonDAO(session),
-                progress_dao=ProgressDAO(session),
-                claude=get_claude_client(),
+        try:
+            async with AsyncSessionLocal() as session:
+                svc = QuizService(
+                    lesson_dao=LessonDAO(session),
+                    progress_dao=ProgressDAO(session),
+                    claude=get_claude_client(),
+                )
+                await svc.generate_quiz(learner_id, chapter_id)
+                await session.commit()
+        except Exception:
+            logger.exception(
+                "Background quiz generation failed for learner=%s chapter=%s",
+                learner_id,
+                chapter_id,
             )
-            await svc.generate_quiz(learner_id, chapter_id)
-            await session.commit()
 
     async def get_summary(self, parent, learner_id: UUID, learner_svc) -> dict:
         learner = await learner_svc.get(parent, learner_id)
