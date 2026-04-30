@@ -1,9 +1,7 @@
 from app.clients.claude_client import ClaudeClient
 from app.clients.standards_api import StandardsAPIClient
+from app.core.enums import GradeLevel, Subject
 from app.daos.lesson_dao import LessonDAO
-
-SUBJECTS = ["math", "science", "english"]
-GRADE_LEVELS = [0, 1, 2, 3]
 
 
 def _difficulty_for_position(order_index: int) -> str:
@@ -68,6 +66,6 @@ class ContentService:
 
     async def sync_all(self) -> None:
         """Full sync across all subjects and grade levels. Idempotent."""
-        for subject in SUBJECTS:
-            for grade_level in GRADE_LEVELS:
-                await self.sync_subject_grade(subject, grade_level)
+        for subject in Subject:
+            for grade_level in GradeLevel:
+                await self.sync_subject_grade(subject.value, int(grade_level))

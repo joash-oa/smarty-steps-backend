@@ -20,7 +20,7 @@ async def _maybe_sync_standards() -> None:
     from app.clients.standards_api import StandardsAPIClient
     from app.daos.lesson_dao import LessonDAO
     from app.db.session import AsyncSessionLocal
-    from app.services.content_service import GRADE_LEVELS, SUBJECTS, ContentService
+    from app.services.content_service import ContentService, GradeLevel, Subject
 
     async with AsyncSessionLocal() as session:
         count = await LessonDAO(session).count_standards()
@@ -28,8 +28,8 @@ async def _maybe_sync_standards() -> None:
             return
 
     logger.info("Standards table empty — starting background content sync")
-    for subject in SUBJECTS:
-        for grade_level in GRADE_LEVELS:
+    for subject in Subject:
+        for grade_level in GradeLevel:
             async with AsyncSessionLocal() as session:
                 async with session.begin():
                     service = ContentService(
@@ -37,7 +37,7 @@ async def _maybe_sync_standards() -> None:
                         standards_api=StandardsAPIClient(),
                         claude=get_claude_client(),
                     )
-                    await service.sync_subject_grade(subject, grade_level)
+                    await service.sync_subject_grade(subject.value, int(grade_level))
     logger.info("Background content sync complete")
 
 

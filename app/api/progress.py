@@ -1,9 +1,10 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_parent
+from app.core.enums import Subject
 from app.daos.learner_dao import LearnerDAO
 from app.daos.lesson_dao import LessonDAO
 from app.daos.progress_dao import ProgressDAO
@@ -21,8 +22,6 @@ from app.services.learner_service import LearnerService
 from app.services.progress_service import ProgressService
 
 router = APIRouter(tags=["progress"])
-
-VALID_SUBJECTS = {"math", "science", "english"}
 
 
 @router.post("/lessons/{lesson_id}/check-answer", response_model=CheckAnswerResponse)
@@ -71,12 +70,10 @@ async def get_progress_summary(
 @router.get("/learners/{learner_id}/progress/{subject}", response_model=SubjectProgressResponse)
 async def get_subject_progress(
     learner_id: UUID,
-    subject: str,
+    subject: Subject,
     parent: Parent = Depends(get_current_parent),
     db: AsyncSession = Depends(get_db),
 ):
-    if subject not in VALID_SUBJECTS:
-        raise HTTPException(status_code=400, detail="Invalid subject")
     svc = ProgressService(LessonDAO(db), ProgressDAO(db), LearnerDAO(db))
     learner_svc = LearnerService(LearnerDAO(db))
     result = await svc.get_subject_progress(parent, learner_id, subject, learner_svc)
