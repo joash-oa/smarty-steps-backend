@@ -1,13 +1,14 @@
 from app.clients.claude_client import ClaudeClient
 from app.clients.standards_api import StandardsAPIClient
+from app.core.constants import DIFFICULTY_EASY_MAX_INDEX, DIFFICULTY_MEDIUM_MAX_INDEX
 from app.core.enums import GradeLevel, Subject
 from app.daos.lesson_dao import LessonDAO
 
 
 def _difficulty_for_position(order_index: int) -> str:
-    if order_index <= 2:
+    if order_index <= DIFFICULTY_EASY_MAX_INDEX:
         return "easy"
-    if order_index <= 4:
+    if order_index <= DIFFICULTY_MEDIUM_MAX_INDEX:
         return "medium"
     return "hard"
 

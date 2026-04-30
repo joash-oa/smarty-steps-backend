@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
+from app.core.exceptions import ExerciseNotFoundError, IncompleteAnswersError, LessonNotFoundError
 from app.db.models import Learner, Lesson, LessonProgress, Parent
 from app.services.progress_service import ProgressService
 
@@ -78,18 +78,26 @@ async def test_check_answer_wrong():
 
 
 @pytest.mark.asyncio
-async def test_check_answer_raises_404_for_missing_exercise():
+async def test_check_answer_raises_for_missing_lesson():
+    lesson_dao = MagicMock()
+    lesson_dao.get_lesson_by_id = AsyncMock(return_value=None)
+    svc = ProgressService(lesson_dao=lesson_dao, progress_dao=MagicMock(), learner_dao=MagicMock())
+    with pytest.raises(LessonNotFoundError):
+        await svc.check_lesson_answer(uuid4(), "ex_1", {})
+
+
+@pytest.mark.asyncio
+async def test_check_answer_raises_for_missing_exercise():
     lesson = _lesson()
     lesson_dao = MagicMock()
     lesson_dao.get_lesson_by_id = AsyncMock(return_value=lesson)
     svc = ProgressService(lesson_dao=lesson_dao, progress_dao=MagicMock(), learner_dao=MagicMock())
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ExerciseNotFoundError):
         await svc.check_lesson_answer(lesson.id, "ex_99", {})
-    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_submit_raises_422_when_exercise_missing():
+async def test_submit_raises_when_answers_incomplete():
     lesson = _lesson()
     lesson_dao = MagicMock()
     lesson_dao.get_lesson_by_id = AsyncMock(return_value=lesson)
@@ -100,7 +108,7 @@ async def test_submit_raises_422_when_exercise_missing():
     learner_svc.get = AsyncMock(return_value=learner)
     svc = ProgressService(lesson_dao=lesson_dao, progress_dao=MagicMock(), learner_dao=learner_dao)
     parent = _parent(learner)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(IncompleteAnswersError):
         await svc.submit_lesson(
             parent=parent,
             learner_id=learner.id,
@@ -109,7 +117,6 @@ async def test_submit_raises_422_when_exercise_missing():
             answers={"ex_1": {"selected_option_id": "b"}},  # missing ex_2
             learner_svc=learner_svc,
         )
-    assert exc.value.status_code == 422
 
 
 @pytest.mark.asyncio
