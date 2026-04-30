@@ -63,10 +63,11 @@ class LearnerDAO:
         xp_delta: int,
         new_streak: int,
         new_last_active_at,
+        new_level: int,
     ) -> Learner:
         learner.total_stars = (learner.total_stars or 0) + star_delta
         learner.xp = (learner.xp or 0) + xp_delta
-        learner.level = (learner.xp // 100) + 1
+        learner.level = new_level
         learner.streak_days = new_streak
         learner.last_active_at = new_last_active_at
         await self.session.flush()
