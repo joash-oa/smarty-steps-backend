@@ -11,6 +11,7 @@ from app.daos.lesson_dao import LessonDAO
 from app.daos.progress_dao import ProgressDAO
 from app.db.models import Parent
 from app.services.grading import (
+    compute_effective_stars,
     compute_level,
     compute_new_streak,
     compute_stars,
@@ -104,6 +105,7 @@ class ProgressService:
         else:
             new_level = old_level
 
+        quiz_status = None
         # Only check for chapter completion on first lesson completion (not replays)
         if existing is None:
             total_in_chapter = await self.lesson_dao.count_lessons_in_chapter(lesson.chapter_id)
@@ -116,6 +118,9 @@ class ProgressService:
                 )
                 if existing_quiz is None:
                     asyncio.create_task(self._generate_quiz(learner.id, lesson.chapter_id))
+                    quiz_status = "generating"
+                else:
+                    quiz_status = "ready"
 
         return {
             "stars_earned": new_stars,
@@ -124,6 +129,7 @@ class ProgressService:
             "xp_earned": new_xp,
             "level_up": new_level > old_level,
             "new_level": new_level,
+            "quiz_status": quiz_status,
         }
 
     async def _generate_quiz(self, learner_id: UUID, chapter_id: UUID) -> None:
@@ -173,15 +179,13 @@ class ProgressService:
     async def get_subject_progress(
         self, parent, learner_id: UUID, subject: str, learner_svc
     ) -> dict:
-        from app.services.lesson_service import compute_effective_stars
-
         learner = await learner_svc.get(parent, learner_id)
         chapters = await self.lesson_dao.get_chapters_by_subject(subject)
+        all_prog = await self.progress_dao.get_all_progress_for_learner(learner.id)
+        prog_map = {p.lesson_id: p for p in all_prog}
         chapter_details = []
         for chapter in chapters:
             lessons = await self.lesson_dao.get_lessons_by_chapter(chapter.id)
-            all_prog = await self.progress_dao.get_all_progress_for_learner(learner.id)
-            prog_map = {p.lesson_id: p for p in all_prog}
             quiz = await self.progress_dao.get_chapter_quiz(learner.id, chapter.id)
             lesson_details = []
             for lesson in sorted(lessons, key=lambda x: x.order_index):

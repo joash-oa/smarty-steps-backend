@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from app.clients.claude_client import ClaudeClient
+from app.daos.learner_dao import LearnerDAO
 from app.daos.lesson_dao import LessonDAO
 from app.daos.progress_dao import ProgressDAO
 from app.services.grading import (
@@ -22,10 +23,17 @@ logger = logging.getLogger(__name__)
 
 
 class QuizService:
-    def __init__(self, lesson_dao: LessonDAO, progress_dao: ProgressDAO, claude: ClaudeClient):
+    def __init__(
+        self,
+        lesson_dao: LessonDAO,
+        progress_dao: ProgressDAO,
+        claude: ClaudeClient,
+        learner_dao: LearnerDAO,
+    ):
         self.lesson_dao = lesson_dao
         self.progress_dao = progress_dao
         self.claude = claude
+        self.learner_dao = learner_dao
 
     async def generate_quiz(self, learner_id: UUID, chapter_id: UUID) -> None:
         existing = await self.progress_dao.get_chapter_quiz(learner_id, chapter_id)
@@ -96,20 +104,17 @@ class QuizService:
     async def submit_quiz(
         self,
         parent,
-        learner_id: UUID,
         quiz_id: UUID,
         time_seconds: int,
         answers: dict[str, dict[str, Any]],
         learner_svc,
-        learner_dao,
     ) -> dict:
         quiz = await self.progress_dao.get_quiz_by_id(quiz_id)
         if quiz is None:
             raise HTTPException(status_code=404, detail="Quiz not found")
-        if quiz.learner_id != learner_id:
-            raise HTTPException(status_code=403, detail="Quiz not owned by learner")
 
-        learner = await learner_svc.get(parent, learner_id)
+        # learner_svc.get verifies the learner exists and belongs to the parent
+        learner = await learner_svc.get(parent, quiz.learner_id)
         exercises = quiz.content.get("exercises", [])
         missing = [e["id"] for e in exercises if e["id"] not in answers]
         if missing:
@@ -132,7 +137,7 @@ class QuizService:
         if effective_delta > 0:
             xp_delta = new_xp - compute_quiz_xp(quiz.stars_earned or 0)
             new_streak = compute_new_streak(learner.streak_days or 0, learner.last_active_at)
-            await learner_dao.update_stats(
+            await self.learner_dao.update_stats(
                 learner,
                 star_delta=effective_delta,
                 xp_delta=xp_delta,
