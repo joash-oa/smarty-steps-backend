@@ -56,12 +56,17 @@ class StandardsAPIClient:
         return _parse_standards(standards_dict, subject, grade_level)
 
 
-def _parse_standards(standards_dict: dict, subject: str, grade_level: int) -> list[StandardData]:
-    """Extract leaf standards (depth=2) from the standard set, associating each with its domain.
+# The Common Standards Project API returns standards as a flat dict of entries, each with a
+# "depth" field indicating its level in the hierarchy:
+#   depth 0 → Domain   (e.g. "Number and Operations in Base Ten")
+#   depth 1 → Cluster  (e.g. "Understand place value")
+#   depth 2 → Standard (the actual learning objective we turn into a lesson)
+_DEPTH_DOMAIN = 0
+_DEPTH_STANDARD = 2
 
-    Standards are nested: depth=0 is Domain, depth=1 is Cluster, depth=2 is the actual standard.
-    We track the current domain as we iterate by position so each standard gets the right chapter.
-    """
+
+def _parse_standards(standards_dict: dict, subject: str, grade_level: int) -> list[StandardData]:
+    # Sort by position so domains appear before their child standards.
     entries = sorted(standards_dict.values(), key=lambda entry: entry.get("position", 0))
 
     results = []
@@ -71,13 +76,16 @@ def _parse_standards(standards_dict: dict, subject: str, grade_level: int) -> li
         depth = entry.get("depth", -1)
         label = entry.get("statementLabel", "")
 
-        if depth == 0 and label == "Domain":
+        if depth == _DEPTH_DOMAIN and label == "Domain":
+            # Track the current domain so each standard below it gets the right chapter title.
             current_domain = entry.get("description", "").strip()
             continue
 
-        if depth == 2 and label == "Standard":
+        if depth == _DEPTH_STANDARD and label == "Standard":
             notation = entry.get("statementNotation", "").strip()
             description = entry.get("description", "").strip()
+            # Prefer the human-readable notation (e.g. "2.NBT.A.1") as the unique code;
+            # fall back to ASN identifier or raw ID if notation is absent.
             code = notation or entry.get("asnIdentifier", "") or entry.get("id", "")
             if not code or not description:
                 continue
@@ -88,6 +96,7 @@ def _parse_standards(standards_dict: dict, subject: str, grade_level: int) -> li
                     grade_level=grade_level,
                     title=notation or description[:80],
                     description=description,
+                    # Fall back to capitalised subject name if no domain has been seen yet.
                     domain=current_domain or subject.title(),
                 )
             )

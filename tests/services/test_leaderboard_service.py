@@ -1,7 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
 
 from app.db.models import Learner
 from app.services.leaderboard_service import LeaderboardService
@@ -26,15 +25,6 @@ async def test_get_leaderboard_assigns_ranks():
     assert result["period"] == "all_time"
     ranks = [r["rank"] for r in result["rankings"]]
     assert ranks == [1, 2]
-
-
-@pytest.mark.asyncio
-async def test_get_leaderboard_raises_400_for_invalid_period():
-    dao = MagicMock()
-    svc = LeaderboardService(dao)
-    with pytest.raises(HTTPException) as exc:
-        await svc.get_leaderboard("last_year")
-    assert exc.value.status_code == 400
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_parent
+from app.core.enums import Subject
 from app.core.exceptions import LearnerNotFoundError, LearnerOwnershipError
 from app.daos.learner_dao import LearnerDAO
 from app.daos.lesson_dao import LessonDAO
@@ -24,24 +25,16 @@ from app.services.lesson_service import (
     sanitize_lesson_content,
 )
 
-VALID_SUBJECTS = {"math", "science", "english"}
-
 router = APIRouter(tags=["curriculum"])
 
 
 @router.get("/subjects/{subject}/chapters", response_model=CurriculumResponse)
 async def get_curriculum(
-    subject: str,
+    subject: Subject,
     learner_id: UUID = Query(...),
     parent: Parent = Depends(get_current_parent),
     db: AsyncSession = Depends(get_db),
 ):
-    if subject not in VALID_SUBJECTS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid subject. Must be one of {VALID_SUBJECTS}",
-        )
-
     lesson_dao = LessonDAO(db)
     progress_dao = ProgressDAO(db)
 
