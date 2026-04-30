@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException
-
+from app.core.exceptions import ExerciseNotFoundError, IncompleteAnswersError, LessonNotFoundError
 from app.daos.learner_dao import LearnerDAO
 from app.daos.lesson_dao import LessonDAO
 from app.daos.progress_dao import ProgressDAO
@@ -31,11 +30,11 @@ class ProgressService:
     async def check_lesson_answer(self, lesson_id: UUID, exercise_id: str, answer: dict) -> dict:
         lesson = await self.lesson_dao.get_lesson_by_id(lesson_id)
         if lesson is None:
-            raise HTTPException(status_code=404, detail="Lesson not found")
+            raise LessonNotFoundError(f"Lesson {lesson_id} not found")
         exercises = lesson.content.get("exercises", [])
         exercise = next((e for e in exercises if e["id"] == exercise_id), None)
         if exercise is None:
-            raise HTTPException(status_code=404, detail="Exercise not found")
+            raise ExerciseNotFoundError(f"Exercise {exercise_id} not found")
         correct = grade_exercise(exercise, answer)
         explanation = exercise.get("explanation") if correct else None
         return {"correct": correct, "explanation": explanation}
@@ -51,17 +50,14 @@ class ProgressService:
     ) -> dict:
         lesson = await self.lesson_dao.get_lesson_by_id(lesson_id)
         if lesson is None:
-            raise HTTPException(status_code=404, detail="Lesson not found")
+            raise LessonNotFoundError(f"Lesson {lesson_id} not found")
 
         learner = await learner_svc.get(parent, learner_id)
         exercises = lesson.content.get("exercises", [])
 
         missing = [e["id"] for e in exercises if e["id"] not in answers]
         if missing:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Missing answers for exercises: {missing}",
-            )
+            raise IncompleteAnswersError(missing)
 
         correct_count = sum(grade_exercise(e, answers[e["id"]]) for e in exercises)
         total = len(exercises)

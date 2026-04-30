@@ -1,21 +1,14 @@
-from fastapi import HTTPException
-
+from app.core.constants import LEADERBOARD_MAX_RESULTS
+from app.core.enums import LeaderboardPeriod
 from app.daos.leaderboard_dao import LeaderboardDAO
-
-VALID_PERIODS = {"all_time", "weekly", "monthly"}
 
 
 class LeaderboardService:
     def __init__(self, dao: LeaderboardDAO):
         self.dao = dao
 
-    async def get_leaderboard(self, period: str) -> dict:
-        if period not in VALID_PERIODS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid period. Must be one of {VALID_PERIODS}",
-            )
-        learners = await self.dao.get_ranked(period, limit=50)
+    async def get_leaderboard(self, period: LeaderboardPeriod) -> dict:
+        learners = await self.dao.get_ranked(period, limit=LEADERBOARD_MAX_RESULTS)
         rankings = [
             {
                 "rank": idx + 1,

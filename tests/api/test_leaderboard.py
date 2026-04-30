@@ -48,7 +48,7 @@ async def test_leaderboard_ranking_order(authed_client, db_session):
 async def test_leaderboard_400_for_invalid_period(authed_client):
     client, _ = authed_client
     response = await client.get("/leaderboard?period=decade")
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

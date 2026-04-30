@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
+from app.core.exceptions import ExerciseNotFoundError, IncompleteAnswersError, QuizNotFoundError
 from app.db.models import ChapterQuiz, Learner
 from app.services.quiz_service import QuizService
 
@@ -56,7 +56,42 @@ def _learner():
 
 
 @pytest.mark.asyncio
-async def test_get_quiz_raises_404_when_not_found():
+async def test_generate_quiz_uses_claude_client():
+    """generate_quiz must delegate to self.claude, not instantiate Anthropic SDK directly."""
+    chapter_id = uuid4()
+    learner_id = uuid4()
+
+    lesson = MagicMock()
+    lesson.id = uuid4()
+    lesson.title = "Counting"
+
+    lesson_dao = MagicMock()
+    lesson_dao.get_lessons_by_chapter = AsyncMock(return_value=[lesson])
+
+    progress_dao = MagicMock()
+    progress_dao.get_chapter_quiz = AsyncMock(return_value=None)
+    progress_dao.get_all_progress_for_learner = AsyncMock(return_value=[])
+    progress_dao.create_chapter_quiz = AsyncMock()
+
+    claude = MagicMock()
+    claude.generate_quiz = AsyncMock(
+        return_value={"exercises": [{"id": "q_1", "type": "multiple_choice"}]}
+    )
+
+    svc = QuizService(
+        lesson_dao=lesson_dao,
+        progress_dao=progress_dao,
+        learner_dao=MagicMock(),
+        claude=claude,
+    )
+    await svc.generate_quiz(learner_id, chapter_id)
+
+    claude.generate_quiz.assert_awaited_once()
+    progress_dao.create_chapter_quiz.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_quiz_raises_when_not_found():
     progress_dao = MagicMock()
     progress_dao.get_quiz_by_id = AsyncMock(return_value=None)
     svc = QuizService(
@@ -65,9 +100,8 @@ async def test_get_quiz_raises_404_when_not_found():
         claude=MagicMock(),
         learner_dao=MagicMock(),
     )
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(QuizNotFoundError):
         await svc.get_quiz(uuid4())
-    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -88,6 +122,35 @@ async def test_get_quiz_returns_sanitized_content():
 
 
 @pytest.mark.asyncio
+async def test_check_quiz_answer_raises_when_quiz_not_found():
+    progress_dao = MagicMock()
+    progress_dao.get_quiz_by_id = AsyncMock(return_value=None)
+    svc = QuizService(
+        lesson_dao=MagicMock(),
+        progress_dao=progress_dao,
+        claude=MagicMock(),
+        learner_dao=MagicMock(),
+    )
+    with pytest.raises(QuizNotFoundError):
+        await svc.check_quiz_answer(uuid4(), "ex_1", {})
+
+
+@pytest.mark.asyncio
+async def test_check_quiz_answer_raises_when_exercise_not_found():
+    quiz = _quiz()
+    progress_dao = MagicMock()
+    progress_dao.get_quiz_by_id = AsyncMock(return_value=quiz)
+    svc = QuizService(
+        lesson_dao=MagicMock(),
+        progress_dao=progress_dao,
+        claude=MagicMock(),
+        learner_dao=MagicMock(),
+    )
+    with pytest.raises(ExerciseNotFoundError):
+        await svc.check_quiz_answer(quiz.id, "ex_99", {})
+
+
+@pytest.mark.asyncio
 async def test_check_quiz_answer_correct():
     quiz = _quiz()
     progress_dao = MagicMock()
@@ -100,6 +163,51 @@ async def test_check_quiz_answer_correct():
     )
     result = await svc.check_quiz_answer(quiz.id, "ex_1", {"selected_option_id": "a"})
     assert result["correct"] is True
+
+
+@pytest.mark.asyncio
+async def test_submit_quiz_raises_when_quiz_not_found():
+    progress_dao = MagicMock()
+    progress_dao.get_quiz_by_id = AsyncMock(return_value=None)
+    svc = QuizService(
+        lesson_dao=MagicMock(),
+        progress_dao=progress_dao,
+        claude=MagicMock(),
+        learner_dao=MagicMock(),
+    )
+    with pytest.raises(QuizNotFoundError):
+        await svc.submit_quiz(
+            parent=MagicMock(),
+            quiz_id=uuid4(),
+            time_seconds=60,
+            answers={},
+            learner_svc=MagicMock(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_submit_quiz_raises_when_answers_incomplete():
+    quiz = _quiz()
+    learner = _learner()
+    quiz.learner_id = learner.id
+    progress_dao = MagicMock()
+    progress_dao.get_quiz_by_id = AsyncMock(return_value=quiz)
+    learner_svc = MagicMock()
+    learner_svc.get = AsyncMock(return_value=learner)
+    svc = QuizService(
+        lesson_dao=MagicMock(),
+        progress_dao=progress_dao,
+        claude=MagicMock(),
+        learner_dao=MagicMock(),
+    )
+    with pytest.raises(IncompleteAnswersError):
+        await svc.submit_quiz(
+            parent=MagicMock(),
+            quiz_id=quiz.id,
+            time_seconds=60,
+            answers={"ex_1": {"selected_option_id": "a"}},  # missing ex_2
+            learner_svc=learner_svc,
+        )
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,16 @@
 from app.clients.claude_client import ClaudeClient
 from app.clients.standards_api import StandardsAPIClient
+from app.core.constants import DIFFICULTY_EASY_MAX_INDEX, DIFFICULTY_MEDIUM_MAX_INDEX
+from app.core.enums import GradeLevel, Subject
 from app.daos.lesson_dao import LessonDAO
 
-SUBJECTS = ["math", "science", "english"]
-GRADE_LEVELS = [0, 1, 2, 3]
 
-_DIFFICULTY_BY_ORDER_INDEX = {1: "easy", 2: "easy", 3: "medium", 4: "medium", 5: "hard"}
+def _difficulty_for_position(order_index: int) -> str:
+    if order_index <= DIFFICULTY_EASY_MAX_INDEX:
+        return "easy"
+    if order_index <= DIFFICULTY_MEDIUM_MAX_INDEX:
+        return "medium"
+    return "hard"
 
 
 class ContentService:
@@ -42,7 +47,7 @@ class ContentService:
             )
 
             order_index = (await self.dao.count_lessons_in_chapter(chapter.id)) + 1
-            difficulty = _DIFFICULTY_BY_ORDER_INDEX.get(order_index, "hard")
+            difficulty = _difficulty_for_position(order_index)
 
             content = await self.claude.generate_lesson(
                 standard_title=standard_data.title,
@@ -62,6 +67,6 @@ class ContentService:
 
     async def sync_all(self) -> None:
         """Full sync across all subjects and grade levels. Idempotent."""
-        for subject in SUBJECTS:
-            for grade_level in GRADE_LEVELS:
-                await self.sync_subject_grade(subject, grade_level)
+        for subject in Subject:
+            for grade_level in GradeLevel:
+                await self.sync_subject_grade(subject.value, int(grade_level))

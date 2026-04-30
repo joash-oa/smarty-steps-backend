@@ -74,7 +74,7 @@ async def test_get_curriculum_returns_400_for_invalid_subject(authed_client, db_
         parent_id=parent.id, name="X", age=5, grade_level=0, avatar_emoji="🚀"
     )
     response = await client.get(f"/subjects/invalid/chapters?learner_id={learner.id}")
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
