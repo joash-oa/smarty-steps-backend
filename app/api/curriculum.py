@@ -17,9 +17,9 @@ from app.schemas.curriculum import (
     LessonSummary,
     QuizState,
 )
+from app.services.grading import compute_effective_stars
 from app.services.learner_service import LearnerService
 from app.services.lesson_service import (
-    compute_effective_stars,
     compute_lock_states,
     sanitize_lesson_content,
 )

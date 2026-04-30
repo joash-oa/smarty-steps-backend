@@ -48,8 +48,3 @@ def sanitize_lesson_content(content: dict) -> dict:
             exercise["left_items"] = left_items
             exercise["right_items"] = right_items
     return sanitized
-
-
-def compute_effective_stars(raw_stars: int) -> int:
-    """Apply chapter quiz star multiplier: 3→6, 2→3, 1→1, 0→0."""
-    return {3: 6, 2: 3, 1: 1, 0: 0}.get(raw_stars, 0)

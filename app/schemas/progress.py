@@ -29,6 +29,7 @@ class SubmitLessonResponse(BaseModel):
     xp_earned: int
     level_up: bool
     new_level: int
+    quiz_status: str | None = None
 
 
 class SubjectSummary(BaseModel):

@@ -59,7 +59,12 @@ def _learner():
 async def test_get_quiz_raises_404_when_not_found():
     progress_dao = MagicMock()
     progress_dao.get_quiz_by_id = AsyncMock(return_value=None)
-    svc = QuizService(lesson_dao=MagicMock(), progress_dao=progress_dao, claude=MagicMock())
+    svc = QuizService(
+        lesson_dao=MagicMock(),
+        progress_dao=progress_dao,
+        claude=MagicMock(),
+        learner_dao=MagicMock(),
+    )
     with pytest.raises(HTTPException) as exc:
         await svc.get_quiz(uuid4())
     assert exc.value.status_code == 404
@@ -70,7 +75,12 @@ async def test_get_quiz_returns_sanitized_content():
     quiz = _quiz()
     progress_dao = MagicMock()
     progress_dao.get_quiz_by_id = AsyncMock(return_value=quiz)
-    svc = QuizService(lesson_dao=MagicMock(), progress_dao=progress_dao, claude=MagicMock())
+    svc = QuizService(
+        lesson_dao=MagicMock(),
+        progress_dao=progress_dao,
+        claude=MagicMock(),
+        learner_dao=MagicMock(),
+    )
     result = await svc.get_quiz(quiz.id)
     # correct answers must be stripped
     assert "correct_option_id" not in result["exercises"][0]
@@ -82,7 +92,12 @@ async def test_check_quiz_answer_correct():
     quiz = _quiz()
     progress_dao = MagicMock()
     progress_dao.get_quiz_by_id = AsyncMock(return_value=quiz)
-    svc = QuizService(lesson_dao=MagicMock(), progress_dao=progress_dao, claude=MagicMock())
+    svc = QuizService(
+        lesson_dao=MagicMock(),
+        progress_dao=progress_dao,
+        claude=MagicMock(),
+        learner_dao=MagicMock(),
+    )
     result = await svc.check_quiz_answer(quiz.id, "ex_1", {"selected_option_id": "a"})
     assert result["correct"] is True
 
@@ -106,15 +121,18 @@ async def test_submit_quiz_best_score_only():
     learner_svc = MagicMock()
     learner_svc.get = AsyncMock(return_value=learner)
 
-    svc = QuizService(lesson_dao=MagicMock(), progress_dao=progress_dao, claude=MagicMock())
+    svc = QuizService(
+        lesson_dao=MagicMock(),
+        progress_dao=progress_dao,
+        claude=MagicMock(),
+        learner_dao=learner_dao,
+    )
     result = await svc.submit_quiz(
         parent=MagicMock(),
-        learner_id=learner.id,
         quiz_id=quiz.id,
         time_seconds=120,
         answers={"ex_1": {"selected_option_id": "z"}, "ex_2": {"selected_word": "z"}},
         learner_svc=learner_svc,
-        learner_dao=learner_dao,
     )
     # 0 effective stars < 6 existing → no update
     learner_dao.update_stats.assert_not_awaited()

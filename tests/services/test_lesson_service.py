@@ -2,8 +2,8 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 from app.db.models import Chapter, Lesson
+from app.services.grading import compute_effective_stars
 from app.services.lesson_service import (
-    compute_effective_stars,
     compute_lock_states,
     sanitize_lesson_content,
 )
