@@ -1,6 +1,15 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from app.core.constants import (
+    EFFECTIVE_STARS_MAP,
+    STAR_THRESHOLD_ONE,
+    STAR_THRESHOLD_THREE,
+    STAR_THRESHOLD_TWO,
+    XP_MULTIPLIER,
+    XP_PER_LEVEL,
+)
+
 
 def grade_exercise(exercise: dict, answer: dict) -> bool:
     exercise_type = exercise.get("type")
@@ -21,29 +30,29 @@ def compute_stars(correct: int, total: int) -> int:
     if total == 0:
         return 0
     accuracy = correct / total
-    if accuracy == 1.0:
+    if accuracy == STAR_THRESHOLD_THREE:
         return 3
-    elif accuracy >= 0.70:
+    elif accuracy >= STAR_THRESHOLD_TWO:
         return 2
-    elif accuracy >= 0.50:
+    elif accuracy >= STAR_THRESHOLD_ONE:
         return 1
     return 0
 
 
 def compute_xp(stars: int) -> int:
-    return 10 * (stars + 1)
+    return XP_MULTIPLIER * (stars + 1)
 
 
 def compute_effective_stars(raw_stars: int) -> int:
-    return {3: 6, 2: 3, 1: 1, 0: 0}.get(raw_stars, 0)
+    return EFFECTIVE_STARS_MAP.get(raw_stars, 0)
 
 
 def compute_quiz_xp(raw_stars: int) -> int:
-    return 10 * (compute_effective_stars(raw_stars) + 1)
+    return XP_MULTIPLIER * (compute_effective_stars(raw_stars) + 1)
 
 
 def compute_level(xp: int) -> int:
-    return (xp // 100) + 1
+    return (xp // XP_PER_LEVEL) + 1
 
 
 def compute_new_streak(current_streak: int, last_active_at: Optional[datetime]) -> int:

@@ -5,6 +5,13 @@ import re
 import anthropic
 
 from app.core.config import settings
+from app.core.constants import (
+    CLAUDE_MODEL,
+    CLAUDE_TIMEOUT_SECONDS,
+    GRADE_LABELS,
+    LESSON_MAX_TOKENS,
+    QUIZ_MAX_TOKENS,
+)
 
 SYSTEM_PROMPT = """You are an educational content creator for Smarty Steps, a learning app for children ages 5-8.
 
@@ -73,7 +80,7 @@ class ClaudeClient:
     def __init__(self):
         self._client = anthropic.AsyncAnthropic(
             api_key=settings.anthropic_api_key,
-            timeout=60.0,
+            timeout=CLAUDE_TIMEOUT_SECONDS,
         )
 
     async def generate_lesson(
@@ -84,7 +91,7 @@ class ClaudeClient:
         grade_level: int,
     ) -> dict:
         """Generate lesson JSONB for a standard. Returns parsed dict."""
-        grade_label = {0: "Kindergarten", 1: "Grade 1", 2: "Grade 2", 3: "Grade 3"}[grade_level]
+        grade_label = GRADE_LABELS[grade_level]
         user_message = (
             f"Generate a lesson for this {subject} standard ({grade_label}):\n"
             f"Standard: {standard_title}\n"
@@ -92,12 +99,29 @@ class ClaudeClient:
             f"Return only the JSON object."
         )
         response = await self._client.messages.create(
-            model="claude-opus-4-7",
-            max_tokens=4096,
+            model=CLAUDE_MODEL,
+            max_tokens=LESSON_MAX_TOKENS,
             system=[
                 {
                     "type": "text",
                     "text": SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": user_message}],
+        )
+        raw = response.content[0].text.strip()
+        return _parse_json(raw)
+
+    async def generate_quiz_content(self, system_prompt: str, user_message: str) -> dict:
+        """Generate a chapter quiz. Returns parsed dict."""
+        response = await self._client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=QUIZ_MAX_TOKENS,
+            system=[
+                {
+                    "type": "text",
+                    "text": system_prompt,
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
