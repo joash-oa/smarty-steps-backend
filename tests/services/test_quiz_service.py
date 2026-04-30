@@ -74,7 +74,9 @@ async def test_generate_quiz_uses_claude_client():
     progress_dao.create_chapter_quiz = AsyncMock()
 
     claude = MagicMock()
-    claude.generate_quiz_content = AsyncMock(return_value={"exercises": []})
+    claude.generate_quiz = AsyncMock(
+        return_value={"exercises": [{"id": "q_1", "type": "multiple_choice"}]}
+    )
 
     svc = QuizService(
         lesson_dao=lesson_dao,
@@ -84,7 +86,7 @@ async def test_generate_quiz_uses_claude_client():
     )
     await svc.generate_quiz(learner_id, chapter_id)
 
-    claude.generate_quiz_content.assert_awaited_once()
+    claude.generate_quiz.assert_awaited_once()
     progress_dao.create_chapter_quiz.assert_awaited_once()
 
 
