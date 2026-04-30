@@ -37,18 +37,15 @@ async def _seed(db_session):
 
 
 @pytest.mark.asyncio
-async def test_get_stats_returns_structure(db_session):
-    learner, lesson = await _seed(db_session)
+async def test_get_completed_progress_rows_returns_empty_for_no_progress(db_session):
+    learner, _ = await _seed(db_session)
     dao = DashboardDAO(db_session)
-    stats = await dao.get_stats(learner.id)
-    assert "time_per_subject" in stats
-    assert "mastered" in stats
-    assert "needs_practice" in stats
-    assert "recent_activity" in stats
+    rows = await dao.get_completed_progress_rows(learner.id)
+    assert rows == []
 
 
 @pytest.mark.asyncio
-async def test_mastered_includes_3_star_lessons(db_session):
+async def test_get_completed_progress_rows_returns_completed_lessons(db_session):
     learner, lesson = await _seed(db_session)
     progress_dao = ProgressDAO(db_session)
     await progress_dao.create_lesson_progress(
@@ -60,41 +57,8 @@ async def test_mastered_includes_3_star_lessons(db_session):
         time_seconds=120,
     )
     dao = DashboardDAO(db_session)
-    stats = await dao.get_stats(learner.id)
-    mastered_ids = [m["lesson_id"] for m in stats["mastered"]]
-    assert str(lesson.id) in mastered_ids
-
-
-@pytest.mark.asyncio
-async def test_needs_practice_includes_low_star_completed_lessons(db_session):
-    learner, lesson = await _seed(db_session)
-    progress_dao = ProgressDAO(db_session)
-    await progress_dao.create_lesson_progress(
-        learner_id=learner.id,
-        lesson_id=lesson.id,
-        stars=1,
-        correct=2,
-        total=5,
-        time_seconds=90,
-    )
-    dao = DashboardDAO(db_session)
-    stats = await dao.get_stats(learner.id)
-    needs_practice_ids = [n["lesson_id"] for n in stats["needs_practice"]]
-    assert str(lesson.id) in needs_practice_ids
-
-
-@pytest.mark.asyncio
-async def test_time_per_subject_aggregates_correctly(db_session):
-    learner, lesson = await _seed(db_session)
-    progress_dao = ProgressDAO(db_session)
-    await progress_dao.create_lesson_progress(
-        learner_id=learner.id,
-        lesson_id=lesson.id,
-        stars=2,
-        correct=3,
-        total=5,
-        time_seconds=200,
-    )
-    dao = DashboardDAO(db_session)
-    stats = await dao.get_stats(learner.id)
-    assert stats["time_per_subject"]["math"] >= 200
+    rows = await dao.get_completed_progress_rows(learner.id)
+    assert len(rows) == 1
+    progress, returned_lesson = rows[0]
+    assert returned_lesson.id == lesson.id
+    assert progress.stars_earned == 3
