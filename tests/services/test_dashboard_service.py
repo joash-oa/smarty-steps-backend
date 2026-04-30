@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
+from app.core.exceptions import LearnerOwnershipError
 from app.db.models import Learner, Parent
 from app.services.dashboard_service import DashboardService
 
@@ -46,13 +46,12 @@ async def test_get_stats_delegates_to_dao():
 
 
 @pytest.mark.asyncio
-async def test_get_stats_403_when_learner_not_owned():
+async def test_get_stats_raises_when_learner_not_owned():
     parent = _parent()
 
     learner_svc = MagicMock()
-    learner_svc.get = AsyncMock(side_effect=HTTPException(status_code=403, detail="Not owned"))
+    learner_svc.get = AsyncMock(side_effect=LearnerOwnershipError())
 
     svc = DashboardService(MagicMock())
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(LearnerOwnershipError):
         await svc.get_stats(parent, uuid4(), learner_svc)
-    assert exc.value.status_code == 403
