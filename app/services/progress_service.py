@@ -86,6 +86,7 @@ class ProgressService:
         old_level = compute_level(learner.xp or 0)
         if star_delta > 0:
             xp_delta = new_xp - compute_xp(old_stars)
+            new_level = compute_level((learner.xp or 0) + xp_delta)
             new_streak = compute_new_streak(learner.streak_days or 0, learner.last_active_at)
             await self.learner_dao.update_stats(
                 learner,
@@ -93,8 +94,8 @@ class ProgressService:
                 xp_delta=xp_delta,
                 new_streak=new_streak,
                 new_last_active_at=datetime.now(timezone.utc),
+                new_level=new_level,
             )
-            new_level = compute_level((learner.xp or 0) + xp_delta)
         else:
             new_level = old_level
 

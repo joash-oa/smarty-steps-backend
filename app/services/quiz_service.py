@@ -137,6 +137,7 @@ class QuizService:
         old_level = compute_level(learner.xp or 0)
         if effective_delta > 0:
             xp_delta = new_xp - compute_quiz_xp(quiz.stars_earned or 0)
+            new_level = compute_level((learner.xp or 0) + xp_delta)
             new_streak = compute_new_streak(learner.streak_days or 0, learner.last_active_at)
             await self.learner_dao.update_stats(
                 learner,
@@ -144,8 +145,8 @@ class QuizService:
                 xp_delta=xp_delta,
                 new_streak=new_streak,
                 new_last_active_at=datetime.now(timezone.utc),
+                new_level=new_level,
             )
-            new_level = compute_level((learner.xp or 0) + xp_delta)
         else:
             new_level = old_level
 

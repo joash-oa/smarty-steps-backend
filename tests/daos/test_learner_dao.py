@@ -50,6 +50,34 @@ async def test_get_by_parent_returns_empty_list(db_session):
 
 
 @pytest.mark.asyncio
+async def test_update_stats_persists_provided_level(db_session):
+    """update_stats must persist the caller-supplied new_level, not recompute it."""
+    from datetime import datetime, timezone
+
+    parent = await _make_parent(db_session, "-stats")
+    dao = LearnerDAO(db_session)
+    learner = await dao.create(
+        parent_id=parent.id,
+        name="Sam",
+        age=6,
+        grade_level=1,
+        avatar_emoji="⭐",
+    )
+    updated = await dao.update_stats(
+        learner,
+        star_delta=3,
+        xp_delta=50,
+        new_streak=2,
+        new_last_active_at=datetime.now(timezone.utc),
+        new_level=99,
+    )
+    assert updated.total_stars == 3
+    assert updated.xp == 50
+    assert updated.level == 99
+    assert updated.streak_days == 2
+
+
+@pytest.mark.asyncio
 async def test_update_learner_fields(db_session):
     parent = await _make_parent(db_session, "-upd")
     dao = LearnerDAO(db_session)
