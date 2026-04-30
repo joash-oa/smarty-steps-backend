@@ -141,6 +141,7 @@ class ProgressService:
                 svc = QuizService(
                     lesson_dao=LessonDAO(session),
                     progress_dao=ProgressDAO(session),
+                    learner_dao=LearnerDAO(session),
                     claude=get_claude_client(),
                 )
                 await svc.generate_quiz(learner_id, chapter_id)
