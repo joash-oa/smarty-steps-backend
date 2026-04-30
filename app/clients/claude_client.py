@@ -1,9 +1,13 @@
 # ruff: noqa: E501
 import json
+import logging
+import re
 
 import anthropic
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an educational content creator for Smarty Steps, a learning app for children ages 5-8.
 
@@ -100,7 +104,56 @@ class ClaudeClient:
             messages=[{"role": "user", "content": user_message}],
         )
         raw = response.content[0].text.strip()
-        return json.loads(raw)
+        return _parse_json(raw)
+
+    async def generate_quiz(
+        self,
+        difficulty: str,
+        lesson_summaries: str,
+    ) -> dict:
+        """Generate chapter quiz JSONB. Returns parsed dict."""
+        user_message = (
+            f"Generate a chapter quiz (difficulty: {difficulty}).\n"
+            f"Learner performance:\n{lesson_summaries}\n"
+            f"Focus on weaker areas. Return only the JSON."
+        )
+        response = await self._client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=3000,
+            system=[
+                {
+                    "type": "text",
+                    "text": QUIZ_SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": user_message}],
+        )
+        raw = response.content[0].text.strip()
+        return _parse_json(raw)
+
+
+def _parse_json(raw: str) -> dict:
+    """Parse JSON from Claude response, stripping markdown fences if present."""
+    # Strip ```json ... ``` or ``` ... ``` wrappers
+    fenced = re.match(r"^```(?:json)?\s*(.*?)\s*```$", raw, re.DOTALL)
+    text = fenced.group(1) if fenced else raw
+    return json.loads(text)
+
+
+QUIZ_SYSTEM_PROMPT = """You are an educational content creator for Smarty Steps, a learning app
+for children ages 5-8.
+
+Generate a personalized chapter quiz as valid JSON with this schema:
+{
+  "exercises": [
+    // 7-10 exercises, mix of multiple_choice, fill_blank, matching types
+    // Same format as lesson exercises, including correct answers
+  ]
+}
+
+Set exercise difficulty based on the provided learner performance data.
+Return ONLY the JSON object, no markdown fences."""
 
 
 _claude_client: ClaudeClient | None = None
