@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.clients.standards_api import StandardData
-from app.services.content_service import ContentService
+from app.services.content_service import ContentService, _difficulty_for_position
 
 MOCK_STANDARD = StandardData(
     code="NY-TEST.1",
@@ -104,3 +104,12 @@ async def test_sync_creates_chapter_and_lesson_for_new_standard(db_session):
     chapters = await dao.get_chapters_by_subject("math")
     chapter_titles = [chapter.title for chapter in chapters]
     assert "2.NBT" in chapter_titles
+
+
+def test_difficulty_for_position():
+    assert _difficulty_for_position(1) == "easy"
+    assert _difficulty_for_position(2) == "easy"
+    assert _difficulty_for_position(3) == "medium"
+    assert _difficulty_for_position(4) == "medium"
+    assert _difficulty_for_position(5) == "hard"
+    assert _difficulty_for_position(10) == "hard"

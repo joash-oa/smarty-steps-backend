@@ -5,7 +5,13 @@ from app.daos.lesson_dao import LessonDAO
 SUBJECTS = ["math", "science", "english"]
 GRADE_LEVELS = [0, 1, 2, 3]
 
-_DIFFICULTY_BY_ORDER_INDEX = {1: "easy", 2: "easy", 3: "medium", 4: "medium", 5: "hard"}
+
+def _difficulty_for_position(order_index: int) -> str:
+    if order_index <= 2:
+        return "easy"
+    if order_index <= 4:
+        return "medium"
+    return "hard"
 
 
 class ContentService:
@@ -42,7 +48,7 @@ class ContentService:
             )
 
             order_index = (await self.dao.count_lessons_in_chapter(chapter.id)) + 1
-            difficulty = _DIFFICULTY_BY_ORDER_INDEX.get(order_index, "hard")
+            difficulty = _difficulty_for_position(order_index)
 
             content = await self.claude.generate_lesson(
                 standard_title=standard_data.title,
