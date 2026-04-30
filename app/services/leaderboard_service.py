@@ -1,3 +1,4 @@
+from app.core.constants import LEADERBOARD_MAX_RESULTS
 from app.core.enums import LeaderboardPeriod
 from app.daos.leaderboard_dao import LeaderboardDAO
 
@@ -7,7 +8,7 @@ class LeaderboardService:
         self.dao = dao
 
     async def get_leaderboard(self, period: LeaderboardPeriod) -> dict:
-        learners = await self.dao.get_ranked(period, limit=50)
+        learners = await self.dao.get_ranked(period, limit=LEADERBOARD_MAX_RESULTS)
         rankings = [
             {
                 "rank": idx + 1,

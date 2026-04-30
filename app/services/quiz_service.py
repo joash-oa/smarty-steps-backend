@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from app.clients.claude_client import ClaudeClient
+from app.core.constants import QUIZ_HARD_STAR_THRESHOLD, QUIZ_MEDIUM_STAR_THRESHOLD
 from app.core.exceptions import ExerciseNotFoundError, IncompleteAnswersError, QuizNotFoundError
 from app.daos.learner_dao import LearnerDAO
 from app.daos.lesson_dao import LessonDAO
@@ -47,7 +48,12 @@ class QuizService:
             prog_map[lesson.id].stars_earned if lesson.id in prog_map else 0 for lesson in lessons
         ]
         avg_stars = sum(star_values) / len(star_values) if star_values else 0
-        difficulty = "hard" if avg_stars >= 2.5 else "medium" if avg_stars >= 1.5 else "easy"
+        if avg_stars >= QUIZ_HARD_STAR_THRESHOLD:
+            difficulty = "hard"
+        elif avg_stars >= QUIZ_MEDIUM_STAR_THRESHOLD:
+            difficulty = "medium"
+        else:
+            difficulty = "easy"
 
         lesson_summaries = "\n".join(
             f"- {lesson.title} (stars: {prog_map[lesson.id].stars_earned if lesson.id in prog_map else 0}/3)"  # noqa: E501
