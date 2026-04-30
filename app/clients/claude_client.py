@@ -1,5 +1,6 @@
 # ruff: noqa: E501
 import json
+import re
 
 import anthropic
 
@@ -70,7 +71,10 @@ Rules:
 
 class ClaudeClient:
     def __init__(self):
-        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        self._client = anthropic.AsyncAnthropic(
+            api_key=settings.anthropic_api_key,
+            timeout=60.0,
+        )
 
     async def generate_lesson(
         self,
@@ -100,7 +104,13 @@ class ClaudeClient:
             messages=[{"role": "user", "content": user_message}],
         )
         raw = response.content[0].text.strip()
-        return json.loads(raw)
+        return _parse_json(raw)
+
+
+def _parse_json(raw: str) -> dict:
+    fenced = re.match(r"^```(?:json)?\s*(.*?)\s*```$", raw, re.DOTALL)
+    text = fenced.group(1) if fenced else raw
+    return json.loads(text)
 
 
 _claude_client: ClaudeClient | None = None

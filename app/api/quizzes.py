@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_parent
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/chapter-quizzes", tags=["quizzes"])
 
 
 def _svc(db: AsyncSession = Depends(get_db)) -> QuizService:
-    return QuizService(LessonDAO(db), ProgressDAO(db), get_claude_client())
+    return QuizService(LessonDAO(db), ProgressDAO(db), get_claude_client(), LearnerDAO(db))
 
 
 @router.get("/{quiz_id}", response_model=QuizDetailResponse)
@@ -48,24 +48,15 @@ async def submit_quiz(
     quiz_id: UUID,
     body: SubmitQuizRequest,
     parent: Parent = Depends(get_current_parent),
+    svc: QuizService = Depends(_svc),
     db: AsyncSession = Depends(get_db),
 ):
-    progress_dao = ProgressDAO(db)
-    quiz = await progress_dao.get_quiz_by_id(quiz_id)
-    if quiz is None:
-        raise HTTPException(status_code=404, detail="Quiz not found")
-
-    svc = QuizService(LessonDAO(db), progress_dao, get_claude_client())
     learner_svc = LearnerService(LearnerDAO(db))
-    learner_dao = LearnerDAO(db)
-
     result = await svc.submit_quiz(
         parent=parent,
-        learner_id=quiz.learner_id,
         quiz_id=quiz_id,
         time_seconds=body.time_seconds,
         answers=body.answers,
         learner_svc=learner_svc,
-        learner_dao=learner_dao,
     )
     return SubmitQuizResponse(**result)
